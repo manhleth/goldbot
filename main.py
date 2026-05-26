@@ -33,12 +33,13 @@ def run():
         log.error(f"Loi: {e}", exc_info=True)
         send_alert(f"Bot loi luc {datetime.now().strftime('%H:%M')}: {e}")
 
-# Chạy tự động lúc 17:05 UTC mỗi ngày (= 00:05 ICT hôm sau)
+# Chạy lúc 00:05 ICT (17:05 UTC) mỗi ngày
 schedule.every().day.at("17:05").do(run)
 
 if __name__ == "__main__":
-    print("Gold Bot dang chay...")
-    run()   # Chạy ngay lần đầu
+    print("Gold Bot dang chay 24/7...")
+    send_alert("Gold Bot da khoi dong tren server!")
+    run()  # Chạy ngay lần đầu
     while True:
         schedule.run_pending()
         time.sleep(30)

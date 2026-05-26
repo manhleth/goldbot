@@ -4,84 +4,55 @@ from dotenv import load_dotenv
 load_dotenv()
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
-SYSTEM = """Ban la chuyen gia phan tich XAU/USD theo Smart Money Concept (SMC) va ICT.
-Quy tac bat buoc:
-- Chi tra ve JSON hop le, KHONG co bat ky text nao ben ngoai JSON
-- Dung so gia thuc te cu the, khong dung so 0.0 lam placeholder
-- Chi de xuat setup co RR >= 3.0
-- Phan tich bang tieng Viet"""
+SYSTEM = """Ban la trader vang chuyen nghiep phan tich XAU/USD theo SMC + ICT.
+Phong cach: cho phan ung gia tai FVG de vao lenh.
+Quy tac:
+- Tra ve JSON hop le, KHONG co text ben ngoai
+- Ngan gon, suc tich, thuc te
+- Chi neu vung FVG quan trong nhat, bo qua vung yeu
+- Uu tien FVG chua duoc fill, co confluence voi OB
+- Chi de xuat setup co RR >= 3.0"""
 
 def analyze(smc_ctx: dict, min_rr: float = 3.0) -> dict:
     prompt = f"""
-Du lieu SMC da tinh cho XAU/USD:
+Du lieu SMC XAU/USD:
 {json.dumps(smc_ctx, indent=2, ensure_ascii=False)}
 
-Tra ve JSON theo dung schema nay (khong them text ngoai JSON):
+Tra ve JSON ngan gon theo schema sau:
 {{
   "date": "YYYY-MM-DD",
   "bias": {{
-    "direction": "BULLISH hoac BEARISH hoac RANGING",
-    "confidence": "HIGH hoac MEDIUM hoac LOW",
-    "summary": "1 cau tom tat ngan gon",
-    "reasons": ["ly do 1 kem gia cu the", "ly do 2", "ly do 3"],
-    "london_bias": "BUY hoac SELL hoac NEUTRAL",
-    "ny_bias": "BUY hoac SELL hoac NEUTRAL",
+    "direction": "BULLISH|BEARISH|RANGING",
+    "confidence": "HIGH|MEDIUM|LOW",
+    "one_line": "1 cau tom tat don gian nhat",
     "invalidation": 0.0
   }},
+  "fvg_zones": [
+    {{
+      "rank": 1,
+      "direction": "BUY|SELL",
+      "timeframe": "Daily|H4|H1",
+      "zone_high": 0.0,
+      "zone_low": 0.0,
+      "confluence": "OB|Swing Low|Liquidity|EQ",
+      "entry_trigger": "Mo lenh khi gia cham vung va xuat hien [ten nen] tren [TF]",
+      "sl": 0.0,
+      "tp1": 0.0,
+      "tp2": 0.0,
+      "rr": 0.0
+    }}
+  ],
   "key_levels": {{
-    "major_resistance": 0.0,
-    "major_support": 0.0,
-    "equilibrium": 0.0,
-    "weekly_high": 0.0,
-    "weekly_low": 0.0
+    "resistance": 0.0,
+    "support": 0.0,
+    "eq": 0.0
   }},
-  "buy_zones": [
-    {{
-      "rank": 1,
-      "type": "Bullish OB hoac FVG hoac Discount Zone",
-      "zone_high": 0.0,
-      "zone_low": 0.0,
-      "why": "giai thich ngan kem gia cu the",
-      "trigger": "dieu kien cu the de vao lenh mua",
-      "entry": 0.0,
-      "sl": 0.0,
-      "tp1": 0.0,
-      "tp2": 0.0,
-      "rr": 0.0,
-      "timeframe_confirmation": "H1 hoac M15"
-    }}
-  ],
-  "sell_zones": [
-    {{
-      "rank": 1,
-      "type": "Bearish OB hoac FVG hoac Premium Zone",
-      "zone_high": 0.0,
-      "zone_low": 0.0,
-      "why": "giai thich ngan kem gia cu the",
-      "trigger": "dieu kien cu the de vao lenh ban",
-      "entry": 0.0,
-      "sl": 0.0,
-      "tp1": 0.0,
-      "tp2": 0.0,
-      "rr": 0.0,
-      "timeframe_confirmation": "H1 hoac M15"
-    }}
-  ],
-  "scenarios": {{
-    "A": {{
-      "probability": "HIGH hoac MEDIUM",
-      "description": "kich ban A kem muc gia cu the",
-      "play": "cach giao dich"
-    }},
-    "B": {{
-      "probability": "MEDIUM hoac LOW",
-      "description": "kich ban B kem muc gia cu the",
-      "play": "cach giao dich"
-    }}
-  }},
-  "warnings": [],
-  "avoid_zones": []
+  "avoid": "Mo ta ngan vung/dieu kien can tranh hom nay"
 }}
+
+Chi dua toi da 4 FVG quan trong nhat (2 buy + 2 sell), bo qua FVG yeu.
+RR toi thieu {min_rr}.
+"""
 
 Chi dua vao buy_zones va sell_zones co RR >= {min_rr}. Toi da 3 zone moi loai.
 """
