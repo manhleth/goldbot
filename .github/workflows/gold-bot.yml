@@ -17,7 +17,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install anthropic requests pandas python-dotenv
+        run: pip install anthropic requests pandas python-dotenv schedule
 
       - name: Run Gold Bot
         env:
