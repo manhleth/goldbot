@@ -14,21 +14,22 @@ Quy tac:
 - Chi de xuat setup co RR >= 3.0"""
 
 def analyze(smc_ctx: dict, min_rr: float = 3.0) -> dict:
-    prompt = f"""
-Du lieu SMC XAU/USD:
-{json.dumps(smc_ctx, indent=2, ensure_ascii=False)}
+    prompt = (
+        "Du lieu SMC XAU/USD:\n"
+        + json.dumps(smc_ctx, indent=2, ensure_ascii=False)
+        + """
 
 Tra ve JSON ngan gon theo schema sau:
-{{
+{
   "date": "YYYY-MM-DD",
-  "bias": {{
+  "bias": {
     "direction": "BULLISH|BEARISH|RANGING",
     "confidence": "HIGH|MEDIUM|LOW",
     "one_line": "1 cau tom tat don gian nhat",
     "invalidation": 0.0
-  }},
+  },
   "fvg_zones": [
-    {{
+    {
       "rank": 1,
       "direction": "BUY|SELL",
       "timeframe": "Daily|H4|H1",
@@ -40,22 +41,21 @@ Tra ve JSON ngan gon theo schema sau:
       "tp1": 0.0,
       "tp2": 0.0,
       "rr": 0.0
-    }}
+    }
   ],
-  "key_levels": {{
+  "key_levels": {
     "resistance": 0.0,
     "support": 0.0,
     "eq": 0.0
-  }},
+  },
   "avoid": "Mo ta ngan vung/dieu kien can tranh hom nay"
-}}
+}
 
-Chi dua toi da 4 FVG quan trong nhat (2 buy + 2 sell), bo qua FVG yeu.
-RR toi thieu {min_rr}.
-"""
+Chi dua toi da 4 FVG quan trong nhat (2 buy + 2 sell), bo qua FVG yeu. RR toi thieu """
+        + str(min_rr)
+        + "."
+    )
 
-Chi dua vao buy_zones va sell_zones co RR >= {min_rr}. Toi da 3 zone moi loai.
-"""
     msg = client.messages.create(
         model="claude-sonnet-4-5",
         max_tokens=2500,
