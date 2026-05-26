@@ -26,4 +26,4 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           MIN_RR: "3.0"
-        run: python pythonanywhere_main.py
+        run: python main.py
