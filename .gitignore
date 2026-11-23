@@ -1,4 +1,13 @@
-.env 
-venv/ 
-logs/ 
-__pycache__/ 
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+cache/
+journal/*.db
+logs/
+STOP
+run/
+config.*.bak.yaml
+frontend/node_modules/
+data/telegram/
+journal/charts/

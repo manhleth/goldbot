@@ -1,0 +1,241 @@
+symbol: "XAUUSD"            # đổi theo tên symbol của broker (vd: XAUUSDm, GOLD)
+account:
+  require_demo: true        # bắt buộc true — bot thoát nếu tài khoản không phải demo
+
+mt5:
+  path: null                # đường dẫn terminal64.exe; null = terminal đang mở/mặc định
+  login: null
+  server: null
+  password_env: MT5_PASSWORD  # tên biến môi trường chứa mật khẩu (không ghi mật khẩu vào file)
+  magic: 20261123
+  deviation_points: 30
+
+timeframes: { bias: [H4], setup: H1, confirm: [M15, M5], trigger: M5 }
+# bias: xu hướng | setup: tìm range & breakout | confirm: các khung tìm nến xác nhận (khung nào xác nhận trước thì vào)
+# trigger: khung chạy vòng lặp/khớp lệnh. ICT v0.5: { bias: [H4], setup: M15, trigger: M5 }
+
+data:
+  server_time: ny_close     # giờ server broker: ny_close (GMT+2/+3 theo DST Mỹ) hoặc số giờ lệch UTC cố định (0, 2, 3...)
+  cache_dir: cache
+  history_bars: { D1: 600, H4: 1500, H1: 2000, M15: 2000, M5: 1500 }  # số nến nạp để tính chỉ báo (warm-up)
+  window_bars:  { D1: 300, H4: 300, H1: 400, M15: 400, M5: 200 }     # số nến đưa vào bộ phát hiện cấu trúc
+  fetch_chunk_bars: 20000   # số nến mỗi lần xin MT5 khi tải lịch sử (MT5 từ chối yêu cầu quá lớn)
+
+structure:
+  fractal_n: { M5: 2, M15: 2, H1: 3, H4: 3, D1: 5 }
+  atr_period: 14
+  ema: [50, 200]
+  rsi_period: 14
+  adx_period: 14
+  adx_min: 20
+  zone_cluster_atr: 0.5
+  zone_min_touches: 2
+
+bias:
+  method: smc               # smc: chiều của lần phá cấu trúc (BOS/CHoCH) gần nhất | indicators: điểm EMA/ADX/swing (cũ)
+  min_score: 2              # các tham số dưới chỉ dùng cho method: indicators              # |điểm| >= min_score mới ra BUY/SELL
+  slope_ema: 50
+  slope_bars: 10
+  combine: non_conflicting  # non_conflicting: các khung không ngược nhau | all_agree: mọi khung phải cùng chiều
+
+fvg:
+  min_size_atr: 0.3
+  impulse_body_atr: 1.0
+  max_touch_episodes: 1     # 1 = chỉ vào ở lần chạm đầu tiên
+
+order_block:
+  min_move_atr: 2.0
+  search_bars: 5            # số nến lùi lại từ gốc xung lực để tìm nến ngược màu
+
+sweep:
+  max_age_bars: 3           # sweep phải xảy ra trong N nến setup gần nhất
+  require_sr_zone: true     # chỉ nhận sweep tại vùng S/R
+  zone_timeframes: [M15, H4]
+  zone_tolerance_atr: 0.25
+  entry_zone_atr: 0.5       # vùng vào lệnh = từ đáy/đỉnh sweep tới mức bị quét ± 0.5 ATR
+
+trendline:
+  max_pivots: 6
+  break_atr: 0.2
+  retest_max_bars: 20
+  retest_tolerance_atr: 0.2
+
+sr_flip:
+  max_bars_since_break: 100
+  max_touch_episodes: 1
+
+confluence:
+  higher_tf: H4             # khung dùng để kiểm tra FVG khung setup nằm trong FVG khung lớn
+
+trigger:
+  types: [engulfing, pin_bar, mini_choch]   # touch: chạm vùng là vào | engulfing, pin_bar, mini_choch: cần nến xác nhận
+  zone_lookback_bars: 2     # nến trigger hoặc nến trước nó phải chạm vùng setup
+  pin_wick_body_ratio: 2.0
+  pin_min_wick_range: 0.5
+
+filters:
+  rsi_enabled: false        # thuần SMC/ICT: không dùng RSI
+  rsi_overbought: 75
+  rsi_oversold: 25
+  min_score: 0              # điểm confluence tối thiểu (0 = không lọc)
+
+risk:
+  sizing: fixed_money       # fixed_money: mỗi lệnh rủi ro cố định theo tiền | percent: theo % equity
+  risk_per_trade_money: 20  # USD mất tối đa nếu chạm SL (lot làm tròn xuống; gap giá có thể làm lỗ lớn hơn)
+  risk_per_trade_pct: 1.0   # chỉ dùng khi sizing = percent
+  max_open_trades: 2
+  max_daily_loss_pct: 3.0
+  max_consecutive_losses: 4
+  consecutive_loss_pause_hours: 8   # ~1 phiên
+  min_rr_tp1: 2.0           # dùng cho tp1_mode nearest / first_valid
+  tp1_mode: fixed_rr        # fixed_rr: TP1 = tp1_rr × rủi ro | nearest: mức gần nhất phải đạt RR | first_valid: mức đầu tiên đạt RR
+  tp1_rr: 2.0
+  tp1_fallback_rr: null     # null = bỏ tín hiệu khi không có mục tiêu cấu trúc; số = TP1 theo RR cố định
+  tp1_timeframes: [H1]
+  tp2_timeframes: [H4]      # runner chạy tới mức gần nhất sau TP1: thanh khoản đối diện của setup + cấu trúc các khung này
+  sl_anchor: zone           # zone: sau mép xa vùng setup (FVG) | invalidation: sau đỉnh/đáy cú quét
+  sl_buffer_atr: 0.2       # ATR của khung setup (M15)
+  sl_max_atr: 3.0
+  max_spread_points: 40
+  entry_sessions: []        # chỉ mở lệnh trong các phiên này (vd [london, newyork]); [] = không giới hạn
+
+management:
+  split_tp1_fraction: 0.5
+  move_to_breakeven: true   # dời SL runner về hòa vốn khi TP1 khớp
+  breakeven_at_r: 1.0       # giá chạy thuận N×R → dời SL mọi chân về giá vào; null = tắt
+  trail_after_tp1: true
+  trail_tf: H1
+  trail_buffer_atr: 0.0
+  invalidation_tf: H1       # đóng sớm khi nến khung này đóng cửa phá mốc invalidation
+  flat_time: "16:00"        # giờ theo sessions.timezone: đóng hết lệnh; null = tắt
+  flat_weekday: 4           # null = đóng hằng ngày (intraday) | 0=T2 … 4=T6: giữ qua đêm, đóng lúc flat_time của ngày này
+
+news:
+  enabled: true
+  source_url: "https://nfs.faireconomy.media/ff_calendar_thisweek.json"  # feed tuần hiện tại, tự lưu dồn
+  db: journal/news.db
+  refresh_minutes: 60
+  currencies: [USD]
+  impacts: [High]
+  blackout_minutes: 30      # không mở lệnh ±N phút quanh tin
+  forecast_rule: block_against  # off | block_against (bỏ nếu dự báo ngược chiều) | require_aligned (chỉ vào khi cùng chiều)
+  lookahead_hours: 24       # xét các tin sắp ra trong N giờ tới
+  manual_events: []         # thêm tay, vd ["2026-12-10T19:00:00Z"] (chỉ dùng cho blackout)
+  usd_rules:                # usd: +1 = số cao hơn → USD mạnh (vàng giảm); -1 = ngược lại. Quy tắc khớp đầu tiên được dùng
+    - { match: "Unemployment Claims", usd: -1 }
+    - { match: "Unemployment Rate", usd: -1 }
+    - { match: "Non-Farm", usd: 1 }
+    - { match: "Average Hourly Earnings", usd: 1 }
+    - { match: "JOLTS", usd: 1 }
+    - { match: "CPI", usd: 1 }
+    - { match: "PPI", usd: 1 }
+    - { match: "PCE", usd: 1 }
+    - { match: "Federal Funds Rate", usd: 1 }
+    - { match: "GDP", usd: 1 }
+    - { match: "Retail Sales", usd: 1 }
+    - { match: "ISM", usd: 1 }
+    - { match: "PMI", usd: 1 }
+    - { match: "Durable Goods", usd: 1 }
+    - { match: "Consumer Confidence", usd: 1 }
+    - { match: "Consumer Sentiment", usd: 1 }
+    - { match: "Empire State", usd: 1 }
+    - { match: "Philly Fed", usd: 1 }
+
+web:
+  host: 127.0.0.1           # chỉ truy cập từ máy này
+  port: 8000
+  cache_seconds: 10         # cache dữ liệu nến cho giao diện
+
+blocked_windows_utc:        # days: 0=Thứ 2 ... 6=Chủ nhật
+  - { days: [4], start: "20:00", end: "24:00" }
+  - { days: [5, 6], start: "00:00", end: "24:00" }
+
+sessions:                   # giờ địa phương theo timezone (New York tự đổi theo DST, kiểu ICT)
+  timezone: America/New_York
+  trading_day_start: "17:00"  # ngày giao dịch mới bắt đầu (vàng mở phiên tuần tối Chủ nhật)
+  windows:
+    asia: ["20:00", "00:00"]      # range phiên Á (tối hôm trước → nửa đêm NY)
+    london: ["02:00", "05:00"]    # killzone London (= 07:00–10:00 UTC mùa đông)
+    newyork: ["07:00", "10:00"]   # killzone New York (= 12:00–15:00 UTC mùa đông)
+
+ict:
+  killzones: [london, newyork]    # Judas swing: cú quét range phiên Á phải nằm trong các phiên này
+  asian_session: asia
+  sweep_pools: [pdh_pdl, london, swing, equal]  # thanh khoản cho sweep_mss_fvg: ngày trước, range London, swing, equal highs/lows
+  target_pools: [pdh_pdl, asia, london, equal]  # thanh khoản phía đối diện dùng làm mục tiêu TP
+  lookback_bars: 16               # cú quét phải nằm trong 16 nến khung setup gần nhất (M15 = 4 giờ)
+  mss_max_bars: 8                 # MSS phải xảy ra trong 8 nến sau cú quét
+  setup_expiry_bars: 12           # setup hết hạn sau 12 nến kể từ MSS
+  fvg_min_size_atr: 0.2
+  impulse_body_atr: 0.6
+  max_touch_episodes: 1
+  structure_pool_bars: 48         # swing/equal hình thành trong 48 nến M15 gần nhất (12 giờ)
+  equal_tolerance_atr: 0.1        # equal highs/lows: chênh lệch ≤ 0.1 ATR
+  premium_discount: false         # true: BUY chỉ ở nửa dưới (discount), SELL ở nửa trên (premium) của dealing range H4
+
+backtest:
+  default_spread_points: 25 # dùng khi dữ liệu nến không có spread
+  slippage_points: 5
+  initial_equity: 1000
+  symbol_spec: { point: 0.01, tick_size: 0.01, tick_value: 1.0, volume_min: 0.01, volume_step: 0.01, volume_max: 100 }
+
+live:
+  poll_delay_seconds: 5     # chờ thêm sau khi nến đóng rồi mới xử lý
+  stop_file: STOP           # có file này trong thư mục bot → ngừng mở lệnh mới
+  reconnect_backoff_seconds: [5, 15, 60]
+
+journal:
+  live_db: journal/live.db
+  backtest_db: journal/backtest.db
+
+stats:
+  min_trades_any: 30
+  min_trades_reliable: 100
+
+range_breakout:             # breakout range tích lũy theo xu hướng khung bias, vào ở FVG/OB của sóng phá
+  min_bars: 12              # range tối thiểu (nến khung setup)
+  max_bars: 48
+  max_height_atr: 3.0       # cao - thấp của range <= N × ATR
+  breakout_body_atr: 0.8    # thân nến phá >= N × ATR, đóng cửa ngoài range
+  lookback_bars: 24         # chỉ xét nến phá trong N nến gần nhất
+  setup_expiry_bars: 24     # setup hết hạn sau N nến kể từ nến phá
+  leg_bars: 4               # sóng phá = nến phá + N nến sau (tìm FVG trong đoạn này)
+  zones: [fvg, order_block]
+  fvg_min_size_atr: 0.2
+  impulse_body_atr: 0.5
+  ob_search_bars: 6         # tìm nến ngược màu cuối cùng trước nến phá trong N nến
+  max_touch_episodes: 1
+  measured_move: 1.0        # mục tiêu runner = cạnh range + N × chiều cao range
+
+enabled_setups:             # ICT v0.5: sweep_mss_fvg, judas_swing | cũ: fvg_retest, trendline_break_retest, sweep_reversal, sr_flip_retest
+  - range_breakout
+
+feeds:                      # nguồn nhận định bên ngoài (channel Telegram công khai, đọc qua t.me/s/<channel>)
+  channels: [MJCapitalChannel]
+  db: journal/feeds.db
+  media_dir: data/telegram  # ảnh bài đăng (link ảnh của Telegram có hạn → tải ngay sau khi lấy bài)
+  poll_minutes: 10          # chu kỳ kiểm tra bài mới
+  request_delay_seconds: 2  # nghỉ giữa các yêu cầu để không làm phiền máy chủ
+  timeout_seconds: 30
+  bias: { channel: MJCapitalChannel, symbol: XAUUSD }   # nguồn hướng cho `playbook --bias-days`
+  topics:                   # chỉ học từ bài nhắc tới các chủ đề này (tải ảnh, ghi nhãn, kiểm chứng)
+    gold: [vàng, gold, xau, xauusd, "xau/usd"]
+    silver: [bạc, silver, xag, xagusd, "xag/usd"]
+    oil: [dầu, "dầu thô", oil, "crude oil", wti, brent, usoil, ukoil]
+  exclude: ["cờ bạc", "bạc tỷ", "bạc triệu", "bạc nhược", "bạc bẽo", "bạc màu", "tóc bạc", "thời kỳ vàng",
+            "thời đại vàng", "cậu vàng", "cơ hội vàng", "thời điểm vàng", "khung giờ vàng", "giờ vàng", "đèn vàng",
+            "golden", "dầu ăn", "dầu gội"]
+
+bot_common:                 # dùng chung cho các bot phương pháp ONE (python main.py bot --name <tên>)
+  playbook: playbook.yaml
+  base_tf: M15              # khung gốc lấy từ MT5; H1/H4/D1 gộp từ khung này theo giờ UTC (như backtest)
+  cache_file: cache/XAUUSD_M15_long.csv   # lịch sử ban đầu (bổ sung nến mới từ MT5 mỗi chu kỳ)
+  fetch_bars: 2000
+  history_days: 1100        # lịch sử để trade nháp (kinh nghiệm cho lớp học)
+  signal_days: 400          # cửa sổ tính tín hiệu, xu hướng EMA200 H4, đỉnh/đáy dời SL
+  experience_refresh_hours: 24
+  poll_delay_seconds: 5
+
+bots:                       # mỗi bot một tiến trình, magic và journal riêng → chạy song song trên cùng tài khoản demo
+  swing: { method: one_swing, variant: hold_tf, magic: 20261124, journal: journal/live_swing.db, comment: ONE-SW }
+  day: { method: one_day, variant: hold_tf, magic: 20261125, journal: journal/live_day.db, comment: ONE-DAY }

@@ -1,0 +1,327 @@
+# Sổ tay phương pháp XAUUSD — tham số theo docs/knowledge/tradecoinunderground.md (Trade Lab, XAU Playbook).
+# Giá tính theo USD/oz. Giờ UTC nếu không ghi khác; hộp giờ ICT theo sessions.timezone (New York).
+# Chỉ backtest: `python main.py playbook --from 2024-03-01 --to 2026-11-21 [--only xau01,xau12]`
+
+common:
+  risk_per_trade_money: 20   # USD mất tối đa mỗi lệnh (lot làm tròn xuống)
+  initial_equity: 1000
+  max_positions: 1           # số lệnh chờ + vị thế tối đa cùng lúc của một phương pháp
+
+variants:                    # quản lý lệnh dùng chung, chọn bằng --variant
+  hold_h1:
+    title: "gồng theo đỉnh/đáy H1"
+    take_profit: false       # bỏ TP cố định (và chốt một phần)
+    trail: { tf: H1, swing: 3, buffer_atr: 0.2, atr: 14 }   # SL dời theo swing xác nhận sau lúc vào lệnh
+  hold_h4:
+    title: "gồng theo đỉnh/đáy H4"
+    take_profit: false
+    trail: { tf: H4, swing: 3, buffer_atr: 0.2, atr: 14 }
+  hold_tf:
+    title: "gồng theo đỉnh/đáy khung mẫu hình"
+    take_profit: false
+    trail: { tf: [M15, H1, H4], swing: 3, buffer_atr: 0.2, atr: 14 }   # mỗi lệnh dời SL theo khung mẫu hình của nó
+  hold_d1:
+    title: "gồng theo đỉnh/đáy D1"
+    take_profit: false
+    trail: { tf: D1, swing: 2, buffer_atr: 0.2, atr: 14 }
+
+methods:
+  xau01:
+    title: "XAU-01 Hồi EMA21 ba tầng (H1)"
+    tf: H1
+    ema: [21, 55, 200]
+    atr: 14
+    sl_atr: 1.5
+    tp_atr: 3.0
+    hours: ["07:00", "21:00"]
+    skip_friday: true
+
+  xau02:
+    title: "XAU-02 MACD theo EMA200 (H4)"
+    tf: H4
+    ema: [50, 200]
+    macd: [12, 26, 9]        # trang không ghi → dùng chuẩn 12/26/9
+    atr: 14
+    sl_atr: 2.0
+    tp_atr: 4.0
+    hours: ["07:00", "20:00"]
+    skip_friday: true
+
+  xau03:
+    title: "XAU-03 Râu Bollinger quay về (H1)"
+    tf: H1
+    bollinger: [20, 2.0]     # trang không ghi → dùng chuẩn 20/2
+    rsi: 14
+    rsi_buy_below: 35
+    rsi_sell_above: 65
+    sl: 3.0
+    tp_fallback: 5.0         # TP = dải giữa; nếu dải giữa không ở phía có lãi thì dùng khoảng này
+    be_trigger: 2.0
+    be_offset: 0.10
+    hours: ["08:00", "20:00"]
+    skip_friday: true
+
+  xau04:
+    title: "XAU-04 Pivot ngày + Stochastic (M15)"
+    tf: M15
+    stochastic: [5, 3, 3]
+    ema: 21
+    k_buy_below: 25
+    k_sell_above: 75
+    max_distance: 1.5        # giá cách S1/S2 (R1/R2) tối đa
+    sl: 1.5
+    tp1: 1.0
+    tp1_fraction: 0.5
+    tp2: 2.0
+    be_offset: 0.10
+    hours: ["07:00", "20:00"]
+    skip_friday: true
+
+  xau05:
+    title: "XAU-05 Phá hộp Á bằng lệnh chờ (M5)"
+    box: ["00:00", "07:00"]
+    min_coverage: 1.0        # tỉ lệ nến tối thiểu trong hộp (1.0 = đủ: 84 nến M5 / 28 nến M15)
+    min_width: 1.5
+    offset: 0.10
+    sl_offset: 0.50
+    tp_r: 2.0
+    cancel: "12:00"
+    max_positions: 2         # hai lệnh chờ hai phía
+
+  xau06:
+    title: "XAU-06 Phá hộp London đóng nến (M15)"
+    box: ["09:15", "11:00"]  # 7 nến M15 mở 09:15 … 10:45
+    box_bars: 7
+    signal: ["11:00", "16:30"]  # giờ MỞ nến tín hiệu
+    confirm: 0.05
+    min_points: 30           # khoảng SL/TP = max(spread + 30 point, 30 pip) + spread
+    min_pips: 30
+    pip: 0.10                # trang không định nghĩa pip vàng → 0.10 USD (giả định, đổi được)
+    flat: "17:00"
+
+  xau08:
+    title: "XAU-08 Quét biên mở cửa New York + FVG (M5)"
+    box: ["09:30", "10:00"]  # giờ New York
+    box_bars: 6
+    window: ["10:00", "12:00"]
+    fvg_min: 0.06
+    sl_offset: 0.09
+    tp_r: 2.0
+    be_r: 1.3
+
+  xau09:
+    title: "XAU-09 Quét biên Á giờ London + FVG (M5)"
+    box: ["20:00", "02:00"]  # giờ New York, từ tối hôm trước
+    box_bars: 72
+    window: ["02:00", "05:00"]
+    fvg_min: 0.06
+    sl_offset: 0.09
+    tp_r: 2.0
+    be_r: 1.5
+
+  xau10:
+    title: "XAU-10 Hồi EMA9 thuận D1 (M15)"
+    tf: M15
+    daily_ema: 50
+    ema: [9, 21]
+    atr: 14
+    sl_atr: 2.0
+    sl_min: 0.80
+    tp_atr: 3.0
+    max_spread: 0.40
+    hours: ["07:00", "20:00"]
+    skip_friday: true
+
+  xau11:
+    title: "XAU-11 Stochastic thuận D1 (M15)"
+    tf: M15
+    daily_ema: 50
+    stochastic: [5, 3, 3]
+    prev_buy_below: 20
+    now_buy_below: 30
+    prev_sell_above: 80
+    now_sell_above: 70
+    atr: 14
+    sl_atr: 2.0
+    sl_min: 0.80
+    tp_atr: 3.0
+    max_spread: 0.40
+    hours: ["07:00", "20:00"]
+    skip_friday: true
+
+  xau12:
+    title: "XAU-12 Donchian 55/20 (D1)"
+    tf: D1
+    entry: 55
+    exit: 20
+    atr: 14
+    sl_atr: 2.0
+
+  xau13:
+    title: "XAU-13 Phá cấu trúc + Fibonacci + FVG (M15)"
+    tf: M15
+    daily_ema: 50
+    swing: 3
+    atr: 14
+    min_leg_atr: 1.0
+    fib: [0.618, 0.786]
+    fvg_lookback: 8
+    sl_atr: 0.25
+    sl_min_atr: 0.5
+    sl_max_atr: 6.0
+    tp_r: 2.0
+    expiry_bars: 12
+    max_hold_bars: 96
+    hours: ["07:00", "16:00"]
+    skip_friday: false
+
+  # ---- Trendline (tự xây, không thuộc XAU Playbook). Tham số chung qua YAML anchor ----
+  tl_bounce: &tl_base
+    fn: tl_bounce
+    title: "TL-1 Bật trendline H1 (3 chạm) theo H4"
+    line_tf: H1              # khung vẽ trendline
+    tf: H1                   # khung nến xác nhận điểm vào
+    trend_tf: H4             # lọc chiều bằng trendline khung này (null = không lọc)
+    swing: 3                 # đỉnh/đáy swing: 3 nến trái / 3 nến phải
+    max_pivots: 8            # số đỉnh/đáy gần nhất xét để nối đường
+    min_touches: 3           # trendline cần ít nhất 3 đỉnh/đáy chạm
+    touch_tol_atr: 0.3       # đỉnh/đáy cách đường ≤ N × ATR = chạm (và không được xuyên quá mức này)
+    channel_min_touches: 2   # kênh: đường song song phía đối diện có ≥ N điểm chạm
+    require_channel: false   # true = chỉ vào lệnh khi có kênh giá
+    break_atr: 0.2           # đóng cửa xuyên đường quá N × ATR = phá
+    touch_atr: 0.2           # giá cách đường ≤ N × ATR = chạm
+    atr: 14
+    sl_buffer_atr: 0.2
+    tp_r: 2.0
+    max_entries_per_line: 1
+    retest_max_bars: 20
+
+  tl_retest:
+    <<: *tl_base
+    fn: tl_retest
+    title: "TL-2 Phá trendline H1 (3 chạm) + retest, theo H4"
+
+  tl_bounce_channel:
+    <<: *tl_base
+    title: "TL-1K Bật trendline H1 trong kênh giá, theo H4"
+    require_channel: true
+
+  tl_retest_channel:
+    <<: *tl_base
+    fn: tl_retest
+    title: "TL-2K Phá kênh giá H1 + retest, theo H4"
+    require_channel: true
+
+  # Trendline H4 (3 chạm), chiều lệnh theo chính trendline, không lọc thêm
+  tl4_bounce: &tl4
+    <<: *tl_base
+    fn: tl_bounce
+    title: "TL4-1 Bật trendline H4, xác nhận nến H4"
+    line_tf: H4
+    tf: H4
+    trend_tf: null
+    retest_max_bars: 10      # 10 nến H4 = 40 giờ
+
+  tl4_bounce_h1:
+    <<: *tl4
+    title: "TL4-1H Bật trendline H4, xác nhận nến H1"
+    tf: H1
+    retest_max_bars: 40      # 40 nến H1 = 40 giờ
+
+  tl4_retest:
+    <<: *tl4
+    fn: tl_retest
+    title: "TL4-2 Phá trendline H4 + retest, xác nhận nến H4"
+
+  tl4_retest_h1:
+    <<: *tl4
+    fn: tl_retest
+    title: "TL4-2H Phá trendline H4 + retest, xác nhận nến H1"
+    tf: H1
+    retest_max_bars: 40
+
+  # ---- Mẫu hình trendline dạng vùng (docs/knowledge/chart-patterns.md) + rút kinh nghiệm ----
+  patterns: &pat
+    fn: patterns
+    title: "PAT Mẫu hình trendline H4+D1 (có học)"
+    timeframes: [H4, D1]
+    swing: { H4: 3, D1: 2 }  # fractal n trái / n phải theo khung
+    atr: 14
+    window_bars: 80          # chỉ xét đỉnh/đáy trong N nến gần nhất
+    max_pivots: 8
+    min_touches: 2           # mỗi cạnh của mẫu hình hai cạnh
+    neck_touches: 3          # neckline (một cạnh) cần ≥ N chạm
+    zone_atr: 0.3            # trendline là vùng ± N × ATR
+    break_atr: 0.2           # đóng cửa vượt cạnh quá N × ATR = phá
+    min_bars: 12             # mẫu hình kéo dài tối thiểu N nến
+    min_height_atr: 1.5
+    max_height_atr: 12
+    parallel_tol: 0.3        # chiều cao đổi ≤ 30% qua mẫu hình = kênh song song; hẹp dần = tam giác
+    pole_bars: 20            # tìm cán cờ trong N nến trước mẫu hình
+    pole_atr: 4.0            # cán cờ ≥ N × ATR
+    pole_height_ratio: 1.0   # cán cờ ≥ N × chiều cao mẫu hình
+    sl_break_atr: 1.0        # phá cạnh: SL lùi vào trong cạnh N × ATR
+    sl_buffer_atr: 0.3       # bật cạnh: SL ngoài râu nến/cạnh N × ATR
+    learning:                # rút kinh nghiệm theo loại tín hiệu@khung (null = tắt)
+      min_trades: 5          # cần ≥ N kết quả nháp đã đóng mới vào lệnh thật
+      window: 20             # xét N kết quả nháp gần nhất
+      min_expectancy: 0.0    # trung bình R phải > ngưỡng này
+
+  patterns_nolearn:
+    <<: *pat
+    title: "PAT Mẫu hình trendline H4+D1 (không học)"
+    learning: null
+
+  # ---- PHƯƠNG PHÁP DUY NHẤT: phá cấu trúc H4 theo xu hướng, gồng theo đỉnh/đáy H4, có học kinh nghiệm ----
+  unified: &uni
+    fn: unified
+    title: "ONE Phá cấu trúc H4 theo xu hướng"
+    triggers: [patterns]                    # điểm vào: phá cạnh mẫu hình H4 (asia_box = phá hộp phiên Á: tắt, xem CHANGELOG v0.11.0)
+    trend_filter: { tf: H4, fast: 50, slow: 200 }   # chỉ BUY khi close & EMA50 > EMA200 (XAU-02); null = không lọc
+    max_positions: 2
+    patterns:
+      <<: *pat
+      timeframes: [H4]
+      kinds: [flag, triangle_break, channel_break, neckline_break]   # loại có kết quả nháp dương
+    asia_box: { box: ["00:00", "07:00"], min_coverage: 1.0, min_width: 1.5, offset: 0.10, sl_offset: 0.50,
+                tp_r: 2.0, cancel: "12:00" }
+    learning: { min_trades: 5, window: 20, min_expectancy: 0.0 }
+    channel_bias: { valid_days: 60, mode: block_against }   # chặn lệnh ngược hướng nhận định MJ Capital còn hiệu lực 60 ngày; null = tắt
+
+  # ---- HAI BOT CHẠY SONG SONG (cùng phương pháp ONE) ----
+  one_swing:
+    <<: *uni
+    title: "BOT SWING · ONE H4, tối đa 5 lệnh (nhồi lệnh)"
+    max_positions: 5         # tín hiệu đạt chuẩn thì vào thêm, kể cả cùng chiều lệnh đang mở (nhồi lệnh dương)
+    risk_pct: 5.0            # % equity rủi ro mỗi lệnh (người dùng chọn; backtest cho thấy rủi ro cháy tài khoản cao)
+
+  one_day: &day
+    <<: *uni
+    title: "BOT TRONG NGÀY · ONE M15+H1, tối đa 10 lệnh/ngày"
+    max_positions: 5
+    max_per_day: 10
+    risk_pct: 5.0
+    patterns:
+      <<: *pat
+      timeframes: [M15, H1]
+      swing: { M15: 3, H1: 3 }
+      kinds: [flag, triangle_break, channel_break, neckline_break]
+    intraday: { last_entry: "15:30", flat: "16:30", day_start: "17:00" }   # giờ New York
+
+  one_day_m15:
+    <<: *day
+    title: "BOT TRONG NGÀY · chỉ M15"
+    patterns:
+      <<: *pat
+      timeframes: [M15]
+      swing: { M15: 3 }
+      kinds: [flag, triangle_break, channel_break, neckline_break]
+
+  one_day_h1:
+    <<: *day
+    title: "BOT TRONG NGÀY · chỉ H1"
+    patterns:
+      <<: *pat
+      timeframes: [H1]
+      swing: { H1: 3 }
+      kinds: [flag, triangle_break, channel_break, neckline_break]

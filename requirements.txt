@@ -1,5 +1,10 @@
-anthropic
-requests
-pandas
-python-dotenv
-schedule
+pandas>=2.2
+numpy>=1.26
+pyyaml>=6.0
+tzdata>=2024.1
+MetaTrader5>=5.0.45
+pytest>=8.0
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
+httpx>=0.27
