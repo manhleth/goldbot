@@ -87,6 +87,8 @@ def cmd_feeds(cfg: dict, args) -> int:
     fc = cfg["feeds"]
     matcher = TopicMatcher(fc["topics"], fc["exclude"])
     channels = [args.channel] if args.channel else fc["channels"]
+    if args.export_calls or args.import_calls:
+        return _transfer_calls(fc["db"], channels, args.export_calls, args.import_calls)
     with FeedStore(fc["db"]) as store, new_client(fc["timeout_seconds"]) as client:
         while True:
             for channel in channels:
@@ -111,6 +113,60 @@ def cmd_bot(cfg: dict, args) -> int:
         print(f"Không có bot '{args.name}'. Có: {', '.join(cfg['bots'])}")
         return 1
     OneBot(cfg, args.name, connect, ROOT, dry_run=args.dry_run).run_forever()
+    return 0
+
+
+def cmd_history(cfg: dict, args) -> int:
+    """Tải lịch sử dài một khung từ MT5 vào cache (vd cache/XAUUSD_M15_long.csv cho bot ONE)."""
+    import pandas as pd
+
+    from core.mt5_client import connect
+    from data.mt5_source import MT5Source
+
+    source = MT5Source(connect(cfg), cfg["symbol"], cfg["data"]["server_time"])
+    df = source.fetch_range(args.tf, _utc(args.start), pd.Timestamp.now(tz="UTC"), cfg["data"]["fetch_chunk_bars"])
+    out = Path(cfg["data"]["cache_dir"]) / f"{cfg['symbol']}_{args.tf}_long.csv"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    df.drop(columns="close_time").to_csv(out, index=False)
+    print(f"{args.tf}: {len(df)} nến, {df['time'].iat[0]} → {df['time'].iat[-1]} → {out}")
+    return 0
+
+
+def cmd_start_bots(cfg: dict, args) -> int:
+    """Khởi động các bot ONE nền (cùng cơ chế với nút trên web, ghi pid để web thấy trạng thái)."""
+    from web.services.processes import ManagedProcess
+
+    names = args.names.split(",") if args.names else list(cfg["bots"])
+    for name in names:
+        proc = ManagedProcess(f"bot_{name}", ROOT, Path(args.config).resolve())
+        if proc.is_running():
+            print(f"{name}: đang chạy (pid {proc._pid()})")
+            continue
+        proc.start(["bot", "--name", name])
+        print(f"{name}: đã khởi động (pid {proc._pid()}), log: logs/bot_{name}.log")
+    return 0
+
+
+def _transfer_calls(db: str, channels: list[str], export: str | None, imported: str | None) -> int:
+    import json
+
+    from feeds.store import FeedStore
+
+    with FeedStore(db) as store:
+        if export:
+            payload = {ch: json.loads(store.calls(ch).to_json(orient="records", force_ascii=False)) for ch in channels}
+            Path(export).parent.mkdir(parents=True, exist_ok=True)
+            Path(export).write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
+            print(f"Đã xuất {sum(len(v) for v in payload.values())} nhãn → {export}")
+        if imported:
+            payload = json.loads(Path(imported).read_text(encoding="utf-8"))
+            for ch, rows in payload.items():
+                for row in rows:
+                    for col in ("targets", "tools", "fib_levels"):
+                        if isinstance(row.get(col), str):
+                            row[col] = json.loads(row[col])
+                store.save_calls(ch, rows)
+            print(f"Đã nhập {sum(len(v) for v in payload.values())} nhãn từ {imported}")
     return 0
 
 
@@ -186,6 +242,13 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--bias-days", type=int, help="lọc theo hướng nhận định channel còn hiệu lực N ngày")
     pp.add_argument("--bias-mode", default="strict", choices=["strict", "block_against"])
     pp.set_defaults(func=cmd_playbook)
+    hp = sub.add_parser("history", help="tải lịch sử dài một khung từ MT5 vào cache (cho bot ONE)")
+    hp.add_argument("--tf", default="M15")
+    hp.add_argument("--from", dest="start", default="2015-01-01")
+    hp.set_defaults(func=cmd_history)
+    sp = sub.add_parser("start-bots", help="khởi động nền các bot ONE trong config (bỏ qua bot đang chạy)")
+    sp.add_argument("--names", help="vd swing,day (mặc định: tất cả)")
+    sp.set_defaults(func=cmd_start_bots)
     bp = sub.add_parser("bot", help="bot phương pháp ONE trên MT5 demo (vd --name swing / --name day)")
     bp.add_argument("--name", required=True)
     bp.add_argument("--dry-run", action="store_true", help="chạy đủ quy trình nhưng không gửi lệnh")
@@ -196,6 +259,8 @@ def build_parser() -> argparse.ArgumentParser:
     fp.add_argument("--max-pages", type=int, help="giới hạn số trang khi lùi (mỗi trang ~20 bài)")
     fp.add_argument("--media", action="store_true", help="tải ảnh các bài thuộc feeds.topics (vàng, bạc, dầu)")
     fp.add_argument("--watch", action="store_true", help="chạy liên tục, kiểm tra bài mới mỗi poll_minutes")
+    fp.add_argument("--export-calls", help="xuất nhãn nhận định ra file JSON (để chép sang máy khác)")
+    fp.add_argument("--import-calls", help="nhập nhãn nhận định từ file JSON")
     fp.set_defaults(func=cmd_feeds)
     wp = sub.add_parser("web", help="giao diện web local")
     wp.add_argument("--port", type=int)
