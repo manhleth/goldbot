@@ -4,6 +4,13 @@ Tại nến k, mẫu hình dựng từ dữ liệu tới nến k-1 (swing đã x
 - phá cạnh (đóng cửa vượt cạnh quá `break_atr` × ATR): flag (cùng chiều cán cờ) / channel_break / triangle_break /
   broadening_break; cạnh đơn ≥ `neck_touches` chạm bị thủng: neckline_break.
 - bật cạnh kênh song song: channel_bounce (chạm vùng cạnh, đóng cửa quay vào, nến cùng màu).
+- `edge_bounce` (bật `edge_bounce: true`): như channel_bounce nhưng cho mọi mẫu hình hai cạnh (kênh, tam giác, loe);
+  mục tiêu = cạnh đối diện (chốt `bounce_tp1.fraction` ở đó nếu cấu hình), phần còn lại gồng theo biến thể.
+Chọn cạnh (`edge_pick`): newest = đường có điểm neo thứ hai mới nhất (mặc định); touches = nhiều điểm chạm nhất
+(hoà thì dài hơn); longest = dài nhất (hoà thì nhiều chạm hơn). Râu swing được vượt cạnh tới `pierce_atr` × ATR
+(mặc định = `zone_atr`) — trendline có thể cắt qua râu; nến đóng cửa vượt cạnh thì đường vẫn bị loại.
+`edge_pick` dạng danh sách (vd [{pick: touches, pierce_atr: 1.0}, newest]): quét theo từng cách rồi gộp; cùng nến
+cùng chiều thì giữ tín hiệu của cách đứng trước.
 """
 from __future__ import annotations
 
@@ -62,11 +69,16 @@ def _recent(pivots: list[int], last: int, confirm: int, window: int, limit: int)
     return out[-limit:]
 
 
+PICK = {"touches": lambda e: (e.touches, -e.i1), "longest": lambda e: (-e.i1, e.touches)}
+
+
 def _edge(bars: Bars, side: int, last: int, p: dict, tol: float, break_tol: float, min_touches: int) -> Edge | None:
-    """Cạnh qua 2 swing gần đây: mọi swing cùng phía không vượt quá dung sai, không nến nào đóng cửa vượt cạnh từ điểm
-    đầu tới `last`. Chọn đường nhiều điểm chạm nhất, rồi điểm thứ hai mới nhất."""
+    """Cạnh qua 2 swing gần đây: swing cùng phía không vượt cạnh quá `pierce`, không nến nào đóng cửa vượt cạnh từ
+    điểm đầu tới `last`. Chọn theo `edge_pick` (mặc định: điểm thứ hai mới nhất, rồi nhiều điểm chạm nhất)."""
     prices = bars.h if side == UPPER else bars.l
     pts = _recent(bars.highs if side == UPPER else bars.lows, last, bars.confirm, p["window_bars"], p["max_pivots"])
+    pierce = tol * p.get("pierce_atr", p["zone_atr"]) / p["zone_atr"]
+    pick = PICK.get(p.get("edge_pick", "newest"))
     best: Edge | None = None
     for j in range(len(pts) - 1, 0, -1):
         b = pts[j]
@@ -74,17 +86,20 @@ def _edge(bars: Bars, side: int, last: int, p: dict, tol: float, break_tol: floa
             line = Edge(a, prices[a], b, prices[b], 0)
             on = [q for q in pts if q >= a]
             gap = (np.array([prices[q] - line.value(q) for q in on])) * side  # >0: vượt ra ngoài cạnh
-            if (gap > tol).any():
+            if (gap > pierce).any():
                 continue
             seg = np.arange(a, last + 1)
             if ((bars.c[seg] - (line.p1 + line.slope * (seg - a))) * side > break_tol).any():
                 continue
             touches = int((np.abs(gap) <= tol).sum())
-            if touches >= min_touches and (best is None or touches > best.touches):
-                best = Edge(a, prices[a], b, prices[b], touches)
-        if best is not None:
-            return best  # ưu tiên đường có điểm thứ hai mới nhất
-    return None
+            if touches < min_touches:
+                continue
+            edge = Edge(a, prices[a], b, prices[b], touches)
+            if best is None or (pick(edge) > pick(best) if pick else touches > best.touches):
+                best = edge
+        if best is not None and pick is None:
+            return best  # newest: ưu tiên đường có điểm thứ hai mới nhất
+    return best
 
 
 def _pole(bars: Bars, start: int, p: dict) -> tuple[int, float]:
@@ -145,15 +160,17 @@ def scan(df: pd.DataFrame, p: dict, swing: int, start: int = 1) -> list[Signal]:
                         out.append(Signal(k, d, kind, edge_value, target,
                                           f"{shape} {span} nến, cao {height:.2f}, chạm {upper.touches}/{lower.touches}",
                                           (upper, lower)))
-                if shape == "channel":
+                bounce_kinds = (["channel_bounce"] if shape == "channel" else []) + (["edge_bounce"] if p.get("edge_bounce") else [])
+                for bounce in bounce_kinds:
                     for d, edge_value, far in ((B, lo, u), (S, u, lo)):
                         zone_hit = (bars.l[k] <= edge_value + tol) if d == B else (bars.h[k] >= edge_value - tol)
                         back_in = (c - edge_value) * d > 0 and (c - o) * d > 0 and abs(c - edge_value) < height / 2
-                        key = ("bounce", pattern, d)
+                        key = (bounce, pattern, d)
                         if zone_hit and back_in and key not in seen:
                             seen.add(key)
-                            out.append(Signal(k, d, "channel_bounce", edge_value, far,
-                                              f"kênh {span} nến, cao {height:.2f}", (upper, lower)))
+                            out.append(Signal(k, d, bounce, edge_value, far,
+                                              f"{shape} {span} nến, cao {height:.2f}, chạm {upper.touches}/{lower.touches}",
+                                              (upper, lower)))
                 continue
         for side, edge in ((UPPER, upper), (LOWER, lower)):
             neck = edge if edge is not None and edge.touches >= p["neck_touches"] else None
@@ -170,6 +187,37 @@ def scan(df: pd.DataFrame, p: dict, swing: int, start: int = 1) -> list[Signal]:
     return out
 
 
+def _bounce_tp1(sig: Signal, close: float, dist: float, atr: float, cfg: dict | None) -> tuple[float, float] | None:
+    """edge_bounce: (khoảng chốt một phần tại biên đối diện − đệm, tỉ lệ) nếu ≥ `min_r` × khoảng SL; còn lại None."""
+    if sig.kind != "edge_bounce" or not cfg:
+        return None
+    gap = (sig.target - close) * int(sig.direction) - cfg["buffer_atr"] * atr
+    return (float(gap), cfg["fraction"]) if gap >= cfg["min_r"] * dist else None
+
+
+def _picks(p: dict) -> list[dict]:
+    """Các bộ tham số quét theo `edge_pick` (chuỗi hoặc danh sách chuỗi/{pick, pierce_atr})."""
+    raw = p.get("edge_pick", "newest")
+    items = raw if isinstance(raw, list) else [raw]
+    out = []
+    for item in items:
+        spec = {"pick": item} if isinstance(item, str) else item
+        out.append({**p, "edge_pick": spec["pick"], **({"pierce_atr": spec["pierce_atr"]} if "pierce_atr" in spec else {})})
+    return out
+
+
+def scan_all(df: pd.DataFrame, p: dict, swing: int, start: int = 1) -> list[Signal]:
+    """Quét theo mọi cách chọn cạnh, bỏ trùng (cùng nến, cùng chiều, cùng loại phá/bật)."""
+    seen, out = set(), []
+    for q in _picks(p):
+        for sig in scan(df, q, swing, start):
+            key = (sig.k, sig.direction, sig.kind.endswith("_bounce"))
+            if key not in seen:
+                seen.add(key)
+                out.append(sig)
+    return sorted(out, key=lambda s: s.k)
+
+
 def patterns(data: MarketData, p: dict) -> Signals:
     orders: list[Order] = []
     since = p.get("scan_since")  # live: chỉ quét các nến đóng sau thời điểm này
@@ -177,9 +225,9 @@ def patterns(data: MarketData, p: dict) -> Signals:
         df = data.frame(tf)
         atr = ind.atr(df, p["atr"]).to_numpy(float)
         start = int(df["close_time"].searchsorted(since, side="right")) if since is not None else 1
-        for sig in scan(df, p, p["swing"][tf], start):
+        for sig in scan_all(df, p, p["swing"][tf], start):
             k, d = sig.k, sig.direction
-            if sig.kind == "channel_bounce":
+            if sig.kind.endswith("_bounce"):
                 anchor = (min(df["low"].iat[k], sig.line) if d == B else max(df["high"].iat[k], sig.line))
                 sl = anchor - d * p["sl_buffer_atr"] * atr[k]
             else:
@@ -190,11 +238,16 @@ def patterns(data: MarketData, p: dict) -> Signals:
                 continue
             t = df["close_time"].iat[k]
             tp = sig.target if (sig.target - close) * d > 0 else None
+            tp1 = _bounce_tp1(sig, close, dist, atr[k], p.get("bounce_tp1"))
+            if sig.kind == "edge_bounce" and p.get("bounce_tp1") and tp1 is None:
+                continue  # chưa đủ khoảng tới biên đối diện
             times = df["time"]
             edges = [[str(times.iat[e.i1]), float(e.p1), str(times.iat[e.i2]), float(e.p2)] for e in sig.edges]
+            partial = {"tp1_dist": tp1[0], "tp1_fraction": tp1[1]} if tp1 else {}
             orders.append(Order(f"{p['code']}:{sig.kind}@{tf}:{t:%Y%m%d%H%M}:{d.name}", t, d, MARKET,
-                                sl_dist=float(dist), tp=tp, reasons=(f"{sig.kind} {tf}", sig.detail,
+                                sl_dist=float(dist), tp=tp, **partial, reasons=(f"{sig.kind} {tf}", sig.detail,
                                                                        f"cạnh {sig.line:.2f}, mục tiêu {sig.target:.2f}"),
                                 meta={"tf": tf, "kind": sig.kind, "edges": edges, "line": float(sig.line),
+                                      "entry": float(close), "prev_close": float(df["close"].iat[k - 1]),
                                       "target": float(sig.target), "breakout_time": str(times.iat[k])}))
     return Signals(sorted(orders, key=lambda o: o.time), [])

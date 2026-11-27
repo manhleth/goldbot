@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart, CrosshairMode, LineStyle,
   type IChartApi, type IPriceLine, type ISeriesApi, type SeriesMarker, type Time, type UTCTimestamp,
@@ -8,7 +8,9 @@ import type { Analysis, Candle, ZoneOverlay } from "../../api/types";
 import { isoSeconds, TZ_OFFSET } from "../../lib/format";
 import { SETUP_ABBR } from "../../lib/labels";
 import { useUi, type Overlay } from "../../state/ui";
+import type { ShapeEditor } from "../../state/shapeEditor";
 import { CHART } from "../../theme";
+import { DrawingLayer, type ChartApi } from "./DrawingLayer";
 
 const TF_SECONDS: Record<string, number> = { M1: 60, M5: 300, M15: 900, M30: 1800, H1: 3600, H4: 14400, D1: 86400 };
 const SR_EACH_SIDE = 4;
@@ -57,7 +59,13 @@ function zonesToDraw(a: Analysis | undefined, bars: Bar[], ov: Record<Overlay, b
   return out;
 }
 
-export function PriceChart() {
+/** Nét vẽ tay trên chart chính (do ChartPanel giữ trạng thái và tự lưu). */
+export interface ChartDrawing {
+  editor: ShapeEditor;
+  colors: Record<string, string>;
+}
+
+export function PriceChart({ drawing }: { drawing?: ChartDrawing }) {
   const { tf, overlays } = useUi();
   const candles = useCandles(tf, true);
   const analysis = useAnalysis(tf);
@@ -75,6 +83,7 @@ export function PriceChart() {
   const barsRef = useRef<Bar[]>([]);
   const zonesRef = useRef<DrawZone[]>([]);
   const lastTfRef = useRef<string | null>(null);
+  const [api, setApi] = useState<ChartApi | null>(null);
 
   const drawZones = useCallback(() => {
     const chart = chartRef.current;
@@ -125,6 +134,7 @@ export function PriceChart() {
       wickUpColor: CHART.candleUp, wickDownColor: CHART.candleDown,
     });
     chartRef.current = chart;
+    setApi({ chart, series: candleRef.current });
     let frame = 0;
     const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(drawZones); };
     chart.timeScale().subscribeVisibleLogicalRangeChange(schedule);
@@ -138,6 +148,7 @@ export function PriceChart() {
       resize.disconnect();
       box.removeEventListener("wheel", schedule);
       box.removeEventListener("mousemove", onMove);
+      setApi(null);
       chart.remove();
       chartRef.current = null;
       candleRef.current = null;
@@ -232,10 +243,15 @@ export function PriceChart() {
     requestAnimationFrame(drawZones);
   }, [analysis.data, candles.data, overlays, drawZones]);
 
+  const axis = useMemo(() => ({
+    times: (candles.data?.candles ?? []).map((c) => c.time + TZ_OFFSET), step: TF_SECONDS[tf ?? "H1"] ?? 3600,
+  }), [candles.data, tf]);
+
   const error = candles.error?.message;
   return (
     <div className="chart-box" ref={boxRef}>
       <div className="chart-overlay" ref={overlayRef} />
+      {drawing && <DrawingLayer api={api} axis={axis} offset={TZ_OFFSET} {...drawing} />}
       {error && <div className="chart-msg">{error}</div>}
     </div>
   );

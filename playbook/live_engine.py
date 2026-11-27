@@ -55,7 +55,7 @@ class OneEngine:
     def refresh_experience(self, data: MarketData, bars: Bars, now: pd.Timestamp) -> dict[str, tuple[int, float]]:
         """Trade nháp mọi tín hiệu trong lịch sử đang có (cùng bộ mô phỏng với backtest)."""
         trails = {f"{self.variant_name}@{tf}": build_trail(data, bars, {**self.variant["trail"], "tf": tf})
-                  for tf in trail_tfs(self.variant)} or None
+                  for tf in trail_tfs(self.variant, data)} or None
         sim = OrderSimulator(bars, self._spec, self.p["risk_per_trade_money"],
                              self._cfg["backtest"]["slippage_points"], [], trails)
         self._experience = paper_trade(self._signals(data, None), sim)

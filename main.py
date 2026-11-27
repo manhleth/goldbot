@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -64,13 +65,25 @@ def cmd_backtest(cfg: dict, args) -> int:
     return 0
 
 
+def _pairs(text: str | None) -> dict[str, float] | None:
+    """Chuỗi "a=1,b=2" thành {"a": 1.0, "b": 2.0}."""
+    if not text:
+        return None
+    return {k.strip(): float(v) for k, v in (item.split("=") for item in text.split(","))}
+
+
 def cmd_playbook(cfg: dict, args) -> int:
     from playbook.runner import run_playbook
 
     only = [name.strip() for name in args.only.split(",")] if args.only else None
+    risk, capital_by = _pairs(args.risk), _pairs(args.capital_by)
+    if args.refresh:  # tải lại lịch sử khung gốc từ MT5 trước khi chạy
+        cmd_history(cfg, argparse.Namespace(tf=args.base, start=args.refresh_from))
     rows = run_playbook(cfg, Path(args.playbook), _utc(args.start), _utc(args.end), only, args.base,
                         Path(args.data) if args.data else None, args.variant,
-                        {"valid_days": args.bias_days, "mode": args.bias_mode} if args.bias_days else None)
+                        {"valid_days": args.bias_days, "mode": args.bias_mode} if args.bias_days else None,
+                        args.capital, risk, capital_by, json.loads(args.overrides) if args.overrides else None,
+                        args.cent)
     print(f"Xong {len(rows)} phương pháp — xem chi tiết từng run trong tab Thống kê.")
     return 0
 
@@ -121,6 +134,7 @@ def cmd_history(cfg: dict, args) -> int:
     import pandas as pd
 
     from core.mt5_client import connect
+    from data.history import save_spec, spec_path
     from data.mt5_source import MT5Source
 
     source = MT5Source(connect(cfg), cfg["symbol"], cfg["data"]["server_time"])
@@ -128,6 +142,7 @@ def cmd_history(cfg: dict, args) -> int:
     out = Path(cfg["data"]["cache_dir"]) / f"{cfg['symbol']}_{args.tf}_long.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     df.drop(columns="close_time").to_csv(out, index=False)
+    save_spec(spec_path(out.parent, cfg["symbol"]), source.symbol_spec())  # thông số hợp đồng thật cho backtest
     print(f"{args.tf}: {len(df)} nến, {df['time'].iat[0]} → {df['time'].iat[-1]} → {out}")
     return 0
 
@@ -179,6 +194,20 @@ def cmd_report(cfg: dict, args) -> int:
         print("Chưa có run nào trong journal.")
         return 1
     print(_render(journal, run_id, cfg))
+    return 0
+
+
+def cmd_reviews(cfg: dict, args) -> int:
+    from journal.reviews import ReviewStore
+    from stats.review_report import build
+
+    with ReviewStore(ROOT / cfg["review"]["db"]) as store:
+        text = build(store.reviewed(), cfg["review"])
+    if args.out:
+        Path(args.out).write_text(text, encoding="utf-8")
+        print(f"Đã ghi {args.out}")
+    else:
+        print(text)
     return 0
 
 
@@ -241,6 +270,13 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--variant", help="biến thể quản lý lệnh trong playbook.yaml (vd hold_h4)")
     pp.add_argument("--bias-days", type=int, help="lọc theo hướng nhận định channel còn hiệu lực N ngày")
     pp.add_argument("--bias-mode", default="strict", choices=["strict", "block_against"])
+    pp.add_argument("--capital", type=float, help="vốn ban đầu toàn tài khoản (mỗi phương pháp × capital_share)")
+    pp.add_argument("--risk", help="%% rủi ro mỗi lệnh theo phương pháp, vd one_swing=2,one_day=1")
+    pp.add_argument("--capital-by", help="vốn riêng từng phương pháp (bỏ capital_share), vd one_swing=700,one_day=300")
+    pp.add_argument("--overrides", help='JSON thêm theo phương pháp, vd {"one_swing": {"max_lot": 5, "risk_caps": [[5000, 5]]}}')
+    pp.add_argument("--refresh", action="store_true", help="tải lại lịch sử khung gốc từ MT5 trước khi chạy")
+    pp.add_argument("--cent", type=float, help="backtest như tài khoản cent: 1 lot cent = N lot thường (vd 0.01)")
+    pp.add_argument("--refresh-from", default="2015-01-01")
     pp.set_defaults(func=cmd_playbook)
     hp = sub.add_parser("history", help="tải lịch sử dài một khung từ MT5 vào cache (cho bot ONE)")
     hp.add_argument("--tf", default="M15")
@@ -270,6 +306,9 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--db")
     rp.add_argument("--run")
     rp.set_defaults(func=cmd_report)
+    vp = sub.add_parser("reviews", help="xuất nhận xét + nét vẽ tay của từng lệnh (để tìm lỗi lặp lại)")
+    vp.add_argument("--out", help="ghi ra file markdown thay vì in")
+    vp.set_defaults(func=cmd_reviews)
     return parser
 
 

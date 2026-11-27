@@ -1,10 +1,15 @@
 """Trạng thái hệ thống và điều khiển bot."""
 from __future__ import annotations
 
+import json
+import logging
+
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from execution import bot_settings
+from risk.sizing import capped_risk
 from execution.live import shutdown_file
 from execution.one_bot import bot_shutdown_file
 from news.calendar import build_calendar
@@ -12,6 +17,7 @@ from web.services.analysis import ts
 from web.state import AppState, get_state
 
 router = APIRouter(prefix="/api")
+log = logging.getLogger(__name__)
 
 
 class KillSwitch(BaseModel):
@@ -55,6 +61,82 @@ def _bots(state: AppState) -> list[dict]:
             open_legs = journal.rows("SELECT COUNT(*) AS n FROM live_legs WHERE status = 'open'")[0]["n"]
         out.append({"name": name, "method": bc["method"], "running": state.bots[name].is_running(),
                     "heartbeat": heartbeat, "open": open_legs})
+    return out
+
+
+def _bot_summary(state: AppState, name: str, bc: dict, floating: float, now: pd.Timestamp) -> dict:
+    """Thẻ bot kiểu 3Commas: trạng thái, cấu hình rủi ro, lãi/lỗ, tín hiệu gần nhất, kinh nghiệm lớp học."""
+    from playbook.runner import load_playbook
+    from risk.management import trading_date
+
+    p = load_playbook(state.root / state.cfg["bot_common"]["playbook"])["methods"][bc["method"]]
+    with state.journal(f"bot:{name}") as journal:
+        trades = journal.frame("SELECT r_multiple, pnl, exit_time FROM trades")
+        last = journal.rows("SELECT time, setup_key, direction, accepted, reject_reason FROM signals "
+                            "ORDER BY time DESC LIMIT 1")
+        open_legs = journal.rows("SELECT COUNT(*) AS n FROM live_legs WHERE status = 'open'")[0]["n"]
+        heartbeat, experience = journal.get_kv("heartbeat"), journal.get_kv("experience")
+        initial = journal.get_kv("live_initial_equity")
+        share = float(journal.get_kv("capital_share") or 1.0)
+        capital = bot_settings.capital(journal, share, float(initial or 0.0))
+        custom_capital = bool(journal.get_kv(bot_settings.KEY_CAPITAL))
+        risk = bot_settings.risk_pct(journal, p.get("risk_pct"))
+        custom_risk = bool(journal.get_kv(bot_settings.KEY_RISK))
+        lot_cap = bot_settings.max_lot(journal, p.get("max_lot"))
+        caps = bot_settings.risk_caps(journal, p.get("risk_caps"))
+        risk_now = capped_risk(risk, caps, capital) if risk else risk
+    today = trading_date(now, state.cfg["sessions"])
+    if len(trades):
+        exits = pd.to_datetime(trades["exit_time"], utc=True, format="mixed")
+        pnl_today = float(trades.loc[[trading_date(t, state.cfg["sessions"]) == today for t in exits], "pnl"].sum())
+    else:
+        pnl_today = 0.0
+    return {
+        "name": name, "method": bc["method"], "title": p.get("title", bc["method"]), "magic": bc["magic"],
+        "running": state.bots[name].is_running(), "heartbeat": heartbeat, "open": open_legs,
+        "risk_pct": risk, "risk_custom": custom_risk, "risk_default": p.get("risk_pct"),
+        "capital": capital, "capital_custom": custom_capital, "risk_now": risk_now,
+        "max_lot": lot_cap, "risk_caps": caps,
+        "max_positions": p.get("max_positions"), "max_per_day": p.get("max_per_day"),
+        "trades": int(len(trades)), "wins": int((trades["r_multiple"] > 0).sum()) if len(trades) else 0,
+        "pnl_total": float(trades["pnl"].sum()) if len(trades) else 0.0, "pnl_today": pnl_today,
+        "r_total": float(trades["r_multiple"].sum()) if len(trades) else 0.0, "floating": floating,
+        "last_signal": last[0] if last else None, "initial_equity": float(initial) * share if initial else None,
+        "capital_share": share,
+        "experience": json.loads(experience) if experience else {},
+    }
+
+
+class BotSettings(BaseModel):
+    capital: float | None = None    # None = vốn mặc định (equity ban đầu × phần vốn + lãi/lỗ của bot)
+    risk_pct: float | None = None   # None = % rủi ro trong playbook.yaml
+    max_lot: float | None = None    # None = theo playbook.yaml
+    risk_caps: list[list[float]] | None = None    # [[vốn ≥ X$, % tối đa], ...]; [] = không chặn; None = theo playbook
+
+
+@router.post("/bots/{name}/settings")
+def save_bot_settings(name: str, body: BotSettings, state: AppState = Depends(get_state)) -> dict:
+    """Đặt vốn và % rủi ro cho bot live; bot dùng giá trị mới từ lệnh kế tiếp (không cần khởi động lại)."""
+    if name not in state.cfg.get("bots", {}):
+        raise HTTPException(404, f"Không có bot {name}")
+    log.info("Lưu thiết lập bot %s: %s", name, body.model_dump())
+    with state.journal(f"bot:{name}") as journal:
+        try:
+            bot_settings.save(journal, body.capital, body.risk_pct, pd.Timestamp.now(tz="UTC"), body.max_lot,
+                              body.risk_caps)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    return {"ok": True}
+
+
+@router.get("/bots/summary")
+def bots_summary(state: AppState = Depends(get_state)) -> list[dict]:
+    positions = state.gateway.positions()
+    now = pd.Timestamp.now(tz="UTC")
+    out = []
+    for name, bc in state.cfg.get("bots", {}).items():
+        floating = sum(p["profit"] + p.get("swap", 0.0) for p in positions.values() if p["bot"] == name)
+        out.append(_bot_summary(state, name, bc, floating, now))
     return out
 
 

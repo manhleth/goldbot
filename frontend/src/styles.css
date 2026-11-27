@@ -1,36 +1,145 @@
+/* Nền tối kiểu nền tảng giao dịch (TradingView/MT5): lớp nền < panel < thẻ, viền mảnh, chữ số canh cột. */
+:root {
+  --bg: #0f1116;
+  --panel: #161921;
+  --card: #1c2029;
+  --card-hover: #222733;
+  --line: #262b36;
+  --line-strong: #323846;
+  --text: #d1d4dc;
+  --muted: #8a8f9c;
+  --accent: #3987e5;
+  --up: #3987e5;
+  --down: #e66767;
+  --rail-w: 64px;
+  --topbar-h: 52px;
+}
+
 html, body, #root { height: 100%; margin: 0; }
-body { overflow: hidden; }
+body { overflow: hidden; background: var(--bg); color: var(--text); }
+body.resizing { user-select: none; }
+body.resizing-row { cursor: col-resize; }
+body.resizing-column { cursor: row-resize; }
 
-.app { display: flex; flex-direction: column; height: 100%; }
-.app-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 340px; }
-.app-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--mantine-color-dark-5); }
-.app-side { min-height: 0; display: flex; flex-direction: column; background: var(--mantine-color-dark-7); }
+/* ---------- khung ---------- */
+.shell { display: grid; grid-template-columns: var(--rail-w) minmax(0, 1fr); height: 100%; }
+.shell-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.page { flex: 1; min-height: 0; padding: 8px; display: flex; flex-direction: column; }
+.page > .panel, .page > .split { flex: 1; }
 
-.chart-panel { flex: 1 1 58%; min-height: 240px; display: flex; flex-direction: column; }
-.bottom-panel { flex: 0 0 42%; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--mantine-color-dark-5); background: var(--mantine-color-dark-7); }
-.bottom-panel.full { flex: 1 1 100%; border-top: 0; }
+/* ---------- menu trái ---------- */
+.rail { display: flex; flex-direction: column; gap: 6px; padding: 10px 6px; background: var(--panel); border-right: 1px solid var(--line); }
+.rail-logo { width: 34px; height: 34px; margin: 0 auto 8px; border-radius: 9px; display: grid; place-items: center;
+  font-weight: 800; color: #111; background: linear-gradient(135deg, #f5c542, #d99a1e); }
+.rail-item { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 2px; border-radius: 8px;
+  color: var(--muted); font-size: 10px; line-height: 1.1; text-align: center; transition: background .12s, color .12s; }
+.rail-item:hover { background: var(--card); color: var(--text); }
+.rail-item.active { background: rgba(57, 135, 229, .16); color: #8db8f0; }
 
+/* ---------- thanh trên ---------- */
+.topbar { height: var(--topbar-h); flex: 0 0 auto; display: flex; align-items: center; gap: 16px; padding: 0 14px;
+  background: var(--panel); border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; }
+.topbar-fill { flex: 1; }
+.ticker { display: flex; align-items: baseline; gap: 6px; font-size: 15px; font-weight: 600; }
+.ticker-bid { color: var(--down); }
+.ticker-ask { color: var(--up); }
+.ticker-sep { color: var(--muted); font-weight: 400; }
+.ticker-spread { color: var(--muted); font-size: 11px; font-weight: 400; margin-left: 4px; }
+.metric { display: flex; flex-direction: column; line-height: 1.15; }
+.metric-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.metric-value { font-size: 13px; font-weight: 600; }
+
+/* ---------- chia vùng kéo được ---------- */
+.split { display: flex; min-width: 0; min-height: 0; height: 100%; width: 100%; }
+.split-row { flex-direction: row; }
+.split-column { flex-direction: column; }
+.split-item { display: flex; min-width: 0; min-height: 0; flex-shrink: 1; }
+.split-row > .split-item { flex-direction: row; }
+.split-column > .split-item { flex-direction: column; }
+.split-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.split-pane > .panel, .split-pane > .split { flex: 1; }
+.split-gutter { flex: 0 0 8px; position: relative; }
+.split-row > .split-item > .split-gutter { cursor: col-resize; }
+.split-column > .split-item > .split-gutter { cursor: row-resize; }
+.split-gutter::after { content: ""; position: absolute; border-radius: 2px; background: transparent; transition: background .12s; }
+.split-row > .split-item > .split-gutter::after { top: 0; bottom: 0; left: 3px; width: 2px; }
+.split-column > .split-item > .split-gutter::after { left: 0; right: 0; top: 3px; height: 2px; }
+.split-gutter:hover::after, body.resizing .split-gutter:active::after { background: var(--accent); }
+
+/* ---------- panel ---------- */
+.panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.panel-head { flex: 0 0 auto; height: 34px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+.panel-title { letter-spacing: .05em; }
+.panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.panel-body.scroll { overflow: auto; display: block; }
+.panel-body.padded { padding: 10px 12px; }
+.chart-host { display: flex; flex-direction: column; }
+
+/* ---------- thẻ bot ---------- */
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.bot-card { display: flex; flex-direction: column; gap: 10px; }
+.kpi-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.kpi { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border-radius: 6px; background: rgba(255, 255, 255, .025); }
+.kpi-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.kpi-value { font-size: 14px; font-weight: 600; }
+.exp-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+.exp-item { display: flex; justify-content: space-between; gap: 6px; padding: 3px 8px; border-radius: 5px; font-size: 11px;
+  border: 1px dashed var(--line-strong); color: var(--muted); }
+.exp-item.on { border-style: solid; border-color: rgba(57, 135, 229, .45); color: var(--text); }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; display: inline-block; }
+.dot-teal { background: #20c997; box-shadow: 0 0 0 3px rgba(32, 201, 151, .15); }
+.dot-gray { background: #5c616e; }
+.dot-yellow { background: #fab219; box-shadow: 0 0 0 3px rgba(250, 178, 25, .15); }
+
+/* ---------- danh sách / bảng ---------- */
+.feed-row { display: block; width: 100%; padding: 5px 4px; border-bottom: 1px solid var(--line); border-radius: 4px; }
+.feed-row:hover { background: var(--card-hover); }
+.feed-row:last-child { border-bottom: 0; }
+.table-total { text-align: right; padding: 6px 8px 0; font-size: 12px; color: var(--muted); }
+.level-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.level-card { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 8px;
+  background: var(--card); border: 1px solid var(--line); }
+.trade-chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); background: #131722; }
+
+/* ---------- biểu đồ giá ---------- */
 .chart-box { position: relative; flex: 1; min-height: 0; }
 .chart-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 2; overflow: hidden; }
 .chart-zone { position: absolute; border-top: 1px solid; border-bottom: 1px solid; }
 .chart-zone span { position: absolute; right: 4px; top: 0; font-size: 10px; opacity: .85; }
-.chart-msg { position: absolute; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: var(--mantine-color-dark-2); }
+.chart-msg { position: absolute; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: var(--muted); }
 
+/* ---------- tabs trong panel ---------- */
 .tabs-fill { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.tabs-fill > .mantine-Tabs-panel { flex: 1; min-height: 0; overflow: auto; padding: 12px; }
+.tabs-fill > .mantine-Tabs-panel { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; }
 
+/* ---------- chung ---------- */
 .num { font-variant-numeric: tabular-nums; }
-.up { color: #3987e5; }
-.down { color: #e66767; }
+.up { color: var(--up); }
+.down { color: var(--down); }
 .pre { margin: 0; white-space: pre; font: 12px/1.5 var(--mantine-font-family-monospace); }
-
-.table-sticky thead th { position: sticky; top: 0; z-index: 1; background: var(--mantine-color-dark-7); }
+.table-sticky thead th { position: sticky; top: 0; z-index: 1; background: var(--panel); }
 .row-click { cursor: pointer; }
 
-@media (max-width: 1000px) {
-  body { overflow: auto; }
-  .app { height: auto; }
-  .app-body { grid-template-columns: 1fr; }
-  .chart-panel { min-height: 55vh; }
-  .bottom-panel { min-height: 70vh; }
-}
+/* Thẻ bot: vốn / rủi ro / lot / giới hạn lệnh (xuống dòng được, không cắt chữ) */
+.fact-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px; }
+.fact { display: flex; flex-direction: column; gap: 1px; padding: 6px 8px; border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); }
+.fact-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: #787b86; }
+.fact-value { font-size: 13px; font-weight: 600; }
+.fact-note { font-size: 11px; color: #787b86; line-height: 1.3; }
+
+
+/* Vẽ tay trên chart (trendline / đường ngang / vùng) */
+.draw-layer { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; overflow: hidden; }
+.draw-layer.drawing { pointer-events: auto; cursor: crosshair; }
+.draw-hit { stroke: transparent; stroke-width: 12; pointer-events: stroke; cursor: move; }
+.draw-hit:hover { stroke: rgba(255, 255, 255, 0.14); }
+.draw-hit-fill { pointer-events: all; cursor: move; }
+.draw-hit.erase, .draw-hit-fill.erase { cursor: pointer; }
+.draw-handle { fill: #131722; stroke-width: 2; pointer-events: all; cursor: grab; }
+.draw-layer.dragging, .draw-layer.dragging * { cursor: grabbing !important; }
+.draw-sep { width: 1px; height: 16px; background: var(--line); margin: 0 4px; }
+.draw-swatch { cursor: pointer; border: 2px solid transparent; }
+.draw-swatch.active { outline: 2px solid #d1d4dc; outline-offset: 1px; }
+.review-chart { position: relative; height: 460px; border-radius: 6px; overflow: hidden; }

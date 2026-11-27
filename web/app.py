@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from web.routes import backtest, journal, market, news, settings, status
+from web.routes import backtest, journal, market, news, review, settings, status
 from web.state import AppState
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -20,7 +20,7 @@ MISSING_BUILD = """<!doctype html><meta charset="utf-8"><title>GoldBot</title>
 def create_app(root: Path, config_path: Path) -> FastAPI:
     app = FastAPI(title="GoldBot", docs_url="/api/docs", redoc_url=None)
     app.state.app_state = AppState(root, config_path)
-    for module in (status, market, journal, backtest, news, settings):
+    for module in (status, market, journal, backtest, news, settings, review):
         app.include_router(module.router)
     STATIC.mkdir(exist_ok=True)
     app.mount("/static", StaticFiles(directory=STATIC), name="static")

@@ -24,6 +24,7 @@ from data.history import load_csv
 from data.mt5_source import MT5Source
 from execution.live import seconds_until_next_close
 from execution.live_store import LiveStore
+from execution import bot_settings
 from execution.mt5_broker import BrokerError, DemoAccountRequired, MT5Broker
 from journal.db import Journal
 from playbook import chart_svg
@@ -31,7 +32,7 @@ from playbook.live_engine import Decision, OneEngine
 from playbook.runner import load_playbook, signal_row
 from playbook.simulator import Outcome
 from risk.management import improves, trading_date
-from risk.sizing import lot_size
+from risk.sizing import capped, capped_risk, lot_size
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ class OneBot:
         self._shutdown = bot_shutdown_file(root, name)
         self._charts = Path(self.bc["journal"]).parent / "charts" / f"live_{name}"
         p = {**self._pb["common"], **self._pb["methods"][self.bc["method"]]}
+        self._share = float(p.get("capital_share", 1.0))
         self._run_id = self._journal.create_run("live", {**cfg, "bot": self.bc, "playbook": p})
 
     # ---------- kết nối & dữ liệu ----------
@@ -72,6 +74,7 @@ class OneBot:
         broker.ensure_demo()
         if self._journal.get_kv("live_initial_equity") is None:
             self._journal.set_kv("live_initial_equity", str(broker.equity()))
+        self._journal.set_kv("capital_share", str(self._share))
         self._broker, self._source = broker, MT5Source(mt5, self._cfg["symbol"], self._cfg["data"]["server_time"])
         self._engine = OneEngine(self._cfg, self._pb, self.bc["method"], self.bc["variant"], broker.symbol_spec())
         log.info("[%s] Đã kết nối MT5 DEMO, magic %s, phương pháp %s", self.name, self.bc["magic"], self.bc["method"])
@@ -167,7 +170,7 @@ class OneBot:
             "exit_time": leg["exit_time"], "entry": leg["entry"], "sl": leg["initial_sl"], "tp1": None, "tp2": None,
             "volume": leg["volume"], "r_multiple": r, "pnl": leg["profit"] or 0.0, "exit_reason": leg["exit_reason"],
             "mae_r": None, "mfe_r": None, "spread_entry": leg["spread_entry"], "news": "none",
-            "reasons": json.loads(leg["reasons"]) if leg["reasons"] else [], "chart": chart,
+            "reasons": json.loads(leg["reasons"]) if leg["reasons"] else [], "chart": chart, "meta": leg.get("meta"),
         }])
         self._journal.insert("equity", [{"run_id": self._run_id, "time": leg["exit_time"],
                                          "equity": self._broker.equity(), "drawdown_pct": None}])
@@ -242,9 +245,14 @@ class OneBot:
         dist = self._engine.stop_distance(order, price)
         if dist is None:
             return False
-        spec = self._broker.symbol_spec()
-        risk_money = self._broker.equity() * p["risk_pct"] / 100 if p.get("risk_pct") else p["risk_per_trade_money"]
-        volume = lot_size(risk_money, dist, spec)
+        spec = capped(self._broker.symbol_spec(), bot_settings.max_lot(self._journal, p.get("max_lot")))
+        capital = self._capital()
+        pct = bot_settings.risk_pct(self._journal, p.get("risk_pct"))
+        if pct:  # chặn % rủi ro theo mốc vốn của bot (vd ≥ 5.000$ → tối đa 5%)
+            pct = capped_risk(pct, bot_settings.risk_caps(self._journal, p.get("risk_caps")), capital)
+        risk_money = capital * pct / 100 if pct else p["risk_per_trade_money"]
+        risk_money *= order.risk_scale
+        volume = lot_size(risk_money, dist, spec, bool(p.get("min_lot_fallback")))
         if volume <= 0:
             return False
         sl = price - int(d) * dist
@@ -274,6 +282,11 @@ class OneBot:
         log.info("[%s] Đã mở %s %s %.2f lot @ %.2f SL %.2f (rủi ro %.0f$, ticket %d) — %s", self.name, d.name, kind,
                  volume, entry, sl, risk_money, ticket, " · ".join(order.reasons))
         return True
+
+    def _capital(self) -> float:
+        """Vốn riêng của bot (execution/bot_settings.py): vốn đặt tay trên giao diện, hoặc equity ban đầu × phần vốn;
+        cộng lãi/lỗ đã chốt của chính bot."""
+        return bot_settings.capital(self._journal, self._share, self._broker.equity())
 
     def _chart(self, leg: dict, data, exit_time: pd.Timestamp, exit_price: float, r: float) -> str | None:
         meta = json.loads(leg["meta"]) if isinstance(leg.get("meta"), str) else (leg.get("meta") or {})

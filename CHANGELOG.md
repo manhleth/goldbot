@@ -249,3 +249,179 @@ nghẽn ở số mức thanh khoản, yêu cầu nến xác nhận M5 và lọc 
   day M15+H1 721 lệnh +0.25R PF 1.52 DD 77%; day chỉ M15 DD 76%; day chỉ H1 211 lệnh +0.32R PF 1.94 DD 29%.
 - Web: nút bật/tắt từng bot, nguồn dữ liệu theo bot, cột Chart ở Lịch sử lệnh, log từng bot.
 - Đã chạy dry-run cả 2 bot với MT5 demo, rồi khởi động thật lúc 2026-11-23 10:30 UTC (equity demo 100.000$).
+
+## 2026-11-23 — v0.12.1
+- `docs/DEPLOY.md`, `start_all.bat`, lệnh `history` / `start-bots`, xuất/nhập nhãn channel (`feeds --export-calls/--import-calls`).
+- **Sửa lỗi bot trong ngày:** nhiều thứ Sáu sàn đóng vàng sớm (nến cuối 15:55 NY) nên giờ đóng 16:30 NY rơi sau giờ
+  đóng sàn → lệnh bị giữ qua cuối tuần, dính gap (có lệnh −3.3R). Thêm `intraday.friday`: thứ Sáu không vào sau
+  14:30 NY, đóng lúc 15:30 NY. Áp dụng cho cả backtest và live (cùng code).
+- Rủi ro năm 2026 (01-01 → 11-21, nền M5, vốn 1000$, 5%/lệnh lãi kép), sau khi sửa:
+  | Bot | Lệnh | Vốn cuối | Max DD | Chuỗi thua | Ngày tệ nhất | Monte Carlo DD 95% xấu | P(DD ≥ 50%) |
+  |---|---|---|---|---|---|---|---|
+  | Swing (H4) | 44 | 3.972$ | 22.3% | 6 | −10.0% | 32% | 0% |
+  | Trong ngày M15+H1 | 333 | 4.191$ | 63.6% | 19 | −25.4% | 74% | 79% |
+  | Trong ngày chỉ H1 | 102 | 2.509$ | 28.4% | 5 | −10.0% | 44% | 1% |
+
+## 2026-11-23 — v0.12.2
+- Bot trong ngày (`one_day`): rủi ro 5% → **3%/lệnh**, tối đa **3 lệnh cùng lúc** (trước 5), giữ tối đa 10 lệnh/ngày.
+  Lý do: người dùng hạ rủi ro sau khi xem drawdown backtest 2026 (63.6%).
+- Năm 2026 (nền M5, vốn 1000$, lãi kép): 307 lệnh, +0.229R, PF 1.45, vốn → 3.769$, max DD 39.8% (trước 63.6%),
+  chuỗi thua 19, ngày tệ nhất −14.0%, tháng tệ nhất −17.0%, rủi ro mở cùng lúc tối đa 9%;
+  Monte Carlo DD trung vị 37%, 95% xấu nhất 52%, P(DD ≥ 50%) 7% (trước 79%).
+
+## 2026-11-25 — v0.13.0 — Giao diện mới
+- Thiết kế lại toàn bộ giao diện theo các app giao dịch phổ biến (TradingView, MT5, 3Commas/Pionex), chỉ cho máy tính,
+  nền tối: menu icon bên trái (Tổng quan, Biểu đồ, Lệnh, Tín hiệu, Thống kê, Backtest, Log, Cấu hình); thanh trên có
+  giá bid/ask và tài khoản kiểu MT5 (balance, equity, lãi thả nổi, margin level), tin sắp tới, kill switch.
+- Tổng quan: thẻ từng bot (trạng thái/nhịp, lãi hôm nay, tổng, thả nổi, lệnh mở/giới hạn, tỉ lệ thắng, tín hiệu gần
+  nhất, kinh nghiệm trade nháp từng loại mẫu hình), bảng lệnh đang mở kiểu MT5, dòng tín hiệu mới của mọi bot, tin tức.
+- Mọi vùng kéo đổi kích thước được (`components/layout/Split.tsx`, nhớ kích thước, nhấp đúp về mặc định).
+- Bấm một lệnh (đang mở hoặc đã đóng) → khung chi tiết với chart lý do vào lệnh + lý do + thông số.
+- Backend: `/api/bots/summary`, `/api/leg-charts/{mode}/{ticket}`, lệnh mở theo magic của từng bot, thêm trường tài
+  khoản (margin, margin level, lãi thả nổi, đòn bẩy). Bỏ panel phân tích của phương pháp cũ.
+- Khung chi tiết lệnh hiện SL (ban đầu / hiện tại nếu đã dời), TP và mục tiêu tham khảo (measured move) kèm số tiền
+  lời/lỗ nếu giá chạm (`web/services/levels.py`; lệnh đóng suy giá trị hợp đồng từ chính lãi/lỗ thực tế). Bảng
+  trades lưu thêm cột `meta` (mục tiêu, khung, loại mẫu hình).
+- Mỗi tín hiệu có khung chi tiết: lý do vào lệnh, kết quả (vào lệnh / bị bỏ vì sao), chart lý do. Tín hiệu đã vào lệnh
+  dùng chart của lệnh; tín hiệu bị bỏ được vẽ theo yêu cầu (`web/services/signal_chart.py`, `/api/signal-charts/...`)
+  từ nến M15 gộp lên khung mẫu hình. Bảng signals lưu thêm `meta` (cạnh mẫu hình, mục tiêu, khoảng SL) — tín hiệu cũ
+  trước bản này không có nên không vẽ được chart. Thêm `restart_web.bat`.
+
+## 2026-11-25 — v0.13.1
+- **Tắt bộ lọc hướng channel** (`unified.channel_bias: null`, áp dụng cả 2 bot; đã khởi động lại bot). Lý do: người
+  dùng muốn MJ Capital chỉ là nguồn học cách vẽ/phân tích. So sánh trước đó (ONE, 2024-04 → 2026-11): không lọc
+  103 lệnh +94.7R DD 7.5R; có lọc 71 lệnh +76.8R DD 5.1R. Code bộ lọc giữ lại (`playbook/bias.py`), bật lại bằng config.
+- Nạp kiến thức channel IRONMAN CAPITAL (`docs/knowledge/ironman-capital.md`, `feeds` thêm 66 bài): bẫy phá vỡ
+  (trap) + checklist, quản lý vốn, rủi ro sàn (râu spike 28/11/2025, off-quotes), điều khoản FTMO; danh sách quy tắc
+  đề xuất để backtest (B–G, A, S1, S3, S5). Chưa thay đổi quy tắc bot.
+
+## 2026-11-25 — v0.14.0 — Chia vốn 2 bot
+- Xoá toàn bộ lịch sử backtest cũ (journal/backtest.db, chart backtest) theo yêu cầu; journal live giữ nguyên.
+- `capital_share`: mỗi bot dùng 1/2 tài khoản như tài khoản riêng (live: 50% equity ban đầu + lãi/lỗ của chính bot).
+  Swing: 10% phần vốn/lệnh, tối đa 3 lệnh. Scalp (bot trong ngày cũ): 5% phần vốn/lệnh, tối đa 10 lệnh/ngày,
+  3 lệnh cùng lúc. Thêm biến thể so sánh `one_scalp_m5` (mẫu hình M5, chỉ backtest).
+- Backtest 2026-01-01 → 2026-11-22 (nền M5, mỗi bot 500$, lãi kép):
+  | Cấu hình | Lệnh | Thắng | E | Vốn cuối | Max DD | Chuỗi thua | MC P(DD≥50%) |
+  |---|---|---|---|---|---|---|---|
+  | Swing H4 10% | 47 | 49% | +0.856R | 4.065$ (+713%) | 46.1% | 8 | 8% |
+  | Scalp M15+H1 5% | 435 | 38% | +0.193R | 2.387$ (+377%) | 76.8% | 19 | 93% |
+  | Scalp M5 5% | 668 | 29% | −0.047R | 7$ (−99%) | 99.7% | 23 | 100% |
+  | Gộp swing + scalp M15+H1 (1000$) | — | — | — | 6.452$ (+545%) | 45.0% | — | — |
+  | Gộp swing + scalp M5 (1000$) | — | — | — | 4.072$ (+307%) | 69.8% | — | — |
+
+## 2026-11-25 — v0.15.0 — Chỉ giao dịch khung H1 trở lên
+- Thử xác định xu hướng bằng cấu trúc (CHoCH/BOS + trendline khung lớn, `trend_filter.method: structure`,
+  playbook/trend_structure.py) thay EMA: kém EMA ở mọi cấu hình (2026 và dài hạn) → giữ EMA, code để so sánh.
+- Thử setup "phá có lực + cấu trúc khung lớn + retest + nến xác nhận" (`triggers: [retest]`, playbook/retest.py):
+  2026 không cải thiện (scalp âm, swing mẫu quá nhỏ) → không bật.
+- Bot scalp bỏ mẫu hình M15, chỉ còn H1 (theo yêu cầu người dùng). Backtest 2026-01-01 → 2026-11-23 (500$, 5%/lệnh):
+  | Cấu hình | Lệnh | Thắng | E | Vốn cuối | Max DD | Chuỗi thua | MC P(DD≥50%) |
+  |---|---|---|---|---|---|---|---|
+  | Scalp M15+H1 (cũ) | 435 | 38% | +0.193R | 2.387$ | 76.8% | 19 | 93% |
+  | Scalp H1 | 149 | 48% | +0.207R | 1.525$ | 32.2% | 5 | 8% |
+  | Gộp swing + scalp H1 (1000$) | — | — | — | 5.590$ (+459%) | 42.7% | — | — |
+- Bot scalp giữ lệnh qua đêm, chỉ đóng hết 15:30 NY thứ Sáu (`weekend`, theo yêu cầu người dùng; lý do: lệnh vào
+  phiên NY bị đóng 16:30 sau ~4,5 giờ, ~90% đóng theo giờ). Bản cũ giữ làm `one_day_intraday`. Backtest 2026 (500$, 5%):
+  | Cấu hình | Lệnh | E | Vốn cuối | Max DD | Chuỗi thua | MC P(DD≥50%) | Tháng lỗ |
+  |---|---|---|---|---|---|---|---|
+  | Đóng trong ngày (cũ) | 149 | +0.207R | 1.525$ | 32.2% | 5 | 8% | 4/11 |
+  | Giữ qua đêm | 159 | +0.245R | 1.479$ | 54.9% | 7 | 39% | 5/11 |- `patterns.tf_hours`: giới hạn giờ vào lệnh theo khung mẫu hình. Thử `one_day_ny_m15` (H1 cả ngày + M15 chỉ 07:00–16:00 NY),
+  backtest 2026 (500$, 5%): giữ qua đêm 248 lệnh +0.251R, 1.668$, DD 65.9%, MC P(DD≥50%) 83%, tháng lỗ 3/11;
+  đóng trong ngày 263 lệnh +0.171R, 1.431$, DD 57.3%. M15 NY sáng giữ qua đêm +0.41R/64 lệnh. Chưa bật cho bot.- Thử đóng lệnh lai theo phiên (`session_exit`: Á đóng 16:30 cùng ngày, London/NY giữ tới hôm sau/cuối tuần) — 2026:
+  H1 lai cuối tuần 1.619$, DD 44.6%; lai hôm sau 1.593$, DD 45.5%; H1 + M15 NY lai DD 68–69%.
+- **Chốt (người dùng): giữ phương án DD thấp nhất** — bot scalp H1, đóng hết 16:30 NY mỗi ngày (DD 32.2%).
+  Các phương án khác lưu làm so sánh: `one_day_weekend`, `one_day_hybrid`, `one_day_ny_m15`.
+
+## 2026-11-25 — v0.16.0 — Lọc theo vùng hỗ trợ/kháng cự cứng
+- `playbook/sr_zones.py`: vùng S/R từ cụm swing (≥ 2 chạm, gom trong 0.5 ATR) của W1/D1/H4, hết hiệu lực sau `max_age`
+  nến kể từ lần chạm cuối; vai trò theo vị trí giá (vùng vỡ tự đổi vai). 4 cách dùng: `room` (lọc khoảng trống tới vùng
+  cản), `break_bonus` (`Order.risk_scale`), `take_partial` (variant `keep_partial`), setup `zone_bounce`.
+- Backtest 2026: chỉ `room` có ích; thưởng phá vùng không tác dụng, chốt một phần làm kém đi, bật vùng âm (swing −0.59R,
+  scalp −0.14R). Vùng không giới hạn tuổi quá dày (chặn 75–90% lệnh) → thêm `max_age`.
+- Chốt (người dùng): scalp lọc 0.5R theo vùng D1 (tuổi 120 nến) + H4 (180 nến); swing chỉ lọc theo vùng W1 (26 tuần,
+  lookback 52 để vừa cửa sổ live 400 ngày) + D1 (120 ngày). Backtest 2026 (mỗi bot 500$):
+  | Bot | Lệnh | Thắng | E | Vốn cuối | Max DD | Tháng lỗ | MC P(DD≥50%) |
+  |---|---|---|---|---|---|---|---|
+  | Swing không lọc (cũ) | 47 | 49% | +0.856R | 4.065$ | 46.1% | 3/11 | 8% |
+  | Swing lọc W1+D1 | 28 | 57% | +1.121R | 3.212$ | 18.9% | 1/11 | 0% |
+  | Scalp không lọc (cũ) | 149 | 48% | +0.207R | 1.525$ | 32.2% | 4/11 | 8% |
+  | Scalp lọc D1+H4 | 36 | 69% | +0.886R | 1.913$ | 11.1% | 1/11 | 0% |
+  | Gộp (1000$) cũ → mới | — | — | — | 5.590$ → 5.125$ | 42.7% → 16.2% | 2/11 → 1/11 | — |
+  So sánh: swing chỉ W1 (52 tuần) 44 lệnh +1.01R, 5.884$, DD 34.6%. Chọn tham số trên chính dữ liệu 2026 → cần
+  kiểm chứng ngoài mẫu (2024–2025) và forward test.
+
+## 2026-11-25 — v0.17.0 — Swing H2 + H4
+- Thêm khung H2 và M30 (core/timeframes.py, playbook/runner.py HIGHER; gồng SL `hold_tf` thêm M30, H2).
+- Backtest 2026 (500$, cùng lọc S/R): swing H2+H4 48 lệnh +1.011R, 9.951$, DD 30.0%, MC P(DD≥50%) 2%, tháng lỗ 3/11
+  (H4 cũ: 28 lệnh, 3.212$, DD 18.9%); swing H1+H2+H4 DD 71% → bỏ; scalp M30+H1 (M30 +0.02R) và M15+M30+H1 kém H1 → giữ H1.
+- Chốt (người dùng): bot swing dùng mẫu hình H2 + H4.
+- Giao diện: chi tiết lệnh đang mở có 2 tab ảnh — "Hiện tại" (`/api/leg-charts/{mode}/{ticket}/now`, web/services/live_chart.py:
+  nến mới nhất của khung mẫu hình, SL ban đầu/SL hiện tại, giá hiện tại, R thả nổi; tự tải lại mỗi phút) và "Lúc vào lệnh".
+- Sửa: bot live (khung gốc M15) lỗi khi danh sách khung gồng SL có M5 → `trail_tfs(variant, data)` bỏ khung không có dữ liệu.
+- Sửa: `restart_web.bat` dùng `taskkill /T` giết luôn bot (tiến trình con của web) → bỏ `/T`.- Thử `breakeven` (dời SL về hòa vốn khi đạt xR) — backtest 2026, không bật:
+  | Cấu hình | Swing E / vốn cuối / DD | Scalp E / vốn cuối / DD |
+  |---|---|---|
+  | Không (hiện tại) | +1.011R / 9.951$ / 30.0% | +0.886R / 1.913$ / 11.1% |
+  | Hòa vốn 1R | +0.835R / 6.947$ / 29.3% | +0.332R / 846$ / 14.5% |
+  | Hòa vốn 1.5R | +1.007R / 9.784$ / 33.4% | +0.572R / 1.232$ / 11.5% |
+  | Hòa vốn 2R | +1.007R / 9.784$ / 33.4% | +0.804R / 1.637$ / 11.3% |
+  Hòa vốn 1R gần như không giảm lệnh thua −1R (swing 13→12, scalp 5→6) mà cắt mất lệnh thắng lớn (≥3R: 8→6, 3→0).- playbook/patterns.py: `edge_pick` (newest | touches | longest), `pierce_atr` (râu swing được xuyên cạnh), `edge_bounce`
+  (vào ở biên mẫu hình hai cạnh theo xu hướng, chốt `bounce_tp1.fraction` ở biên đối diện, phần còn lại gồng). Backtest
+  2026, không bật (mặc định newest, không bounce):
+  | Cấu hình | Swing lệnh / E / vốn cuối / DD | Scalp lệnh / E / vốn cuối / DD |
+  |---|---|---|
+  | Hiện tại (newest) | 48 / +1.01R / 9.951$ / 30.0% | 36 / +0.89R / 1.913$ / 11.1% |
+  | Nhiều chạm, xuyên râu 1 ATR | 19 / +1.86R / 2.928$ / 18.9% | 23 / +0.69R / 968$ / 9.9% |
+  | Dài nhất, xuyên râu 1 ATR | 12 / +0.31R / 641$ / 24.6% | 7 / +0.20R / 528$ / 14.1% |
+  | Hiện tại + vào ở biên | 90 / +0.55R / 5.272$ / 69.3% (biên −0.01R) | 74 / +0.53R / 2.351$ / 45.7% (biên +0.18R) |
+  | Nhiều chạm + biên | 46 / +1.01R / 4.912$ / 58.0% | 40 / +0.33R / 831$ / 19.0% |- **Chốt (người dùng): bot swing quét cạnh theo cả 2 cách** `edge_pick: [touches, newest]`, `pierce_atr: 1.0`. Backtest 2026:
+  51 lệnh, thắng 69%, +1.433R, +73.1R (cũ +48.5R), 500$ → 41.711$, DD 34.9%. Scalp giữ nguyên (kết hợp kém hơn: 1.604$).
+## 2026-11-26 — Nghiên cứu (không đổi bot)
+- `min_lot_fallback` (vào lot tối thiểu thay vì bỏ lệnh). Phát hiện: backtest mặc định vốn 1.000$ (mỗi bot 500$) khiến
+  nhiều tín hiệu bị bỏ vì lot nhỏ → so sánh dài hạn trước đó bị méo; so sánh công bằng cần vốn bằng tài khoản thật.
+- Bộ học kinh nghiệm (learning gate): tắt đi tăng số lệnh nhưng DD gấp 1.6–2.3 lần → giữ.
+- Backtest riêng từng năm 2020–2026 (vốn 100.000$): mọi cấu hình lãi ở năm xu hướng (2020, 2024–2026), lỗ ở năm đi
+  ngang (2021–2023). Swing H4 gốc +188R (3 năm lỗ), swing live mới +165R (3 năm lỗ), scalp +53R (4 năm lỗ).
+- docs/knowledge/gold-cycles.md: vàng không có chu kỳ nhiều năm đáng tin; mùa vụ tháng 1 (+3.8%, t 3.4), tháng 8;
+  thứ Sáu tăng; pha xu hướng/đi ngang đổi mỗi 2–3 tháng.
+- `regime_exit` (playbook/regime.py, ADX D1): xu hướng gồng D1 làm kém hẳn (H4 gốc +188R → +38…+86R); chỉ chốt
+  1.5R khi đi ngang: +162R, năm lỗ 3 → 2. Swing live + gồng D1/TP 1.5R: +64R. Không bật.- playbook/macro.py: vĩ mô theo cú phá mẫu hình DÀI HẠN có xác nhận (W1 ≥ 52 tuần + 2 tuần giữ; D1 ≥ 120/250 nến + 3 ngày
+  giữ). Swing live từng năm 2020–2026: +165R → +219R, năm lỗ 3 → 2 (2021 −20 → +5R, 2022 −17 → −9R, 2023 0 → −12R). Chưa bật.
+- playbook/channel_regime.py: kênh xu hướng D1 hồi quy làm bộ lọc — kém (tổng +36…+90R), không bật. Ghi trường hợp kênh giảm
+  D1 2022 vào docs/methods/ONE.md mục 7.- Kiến thức: khoá YouTube "K23 Alden Nguyen" (57 buổi, phụ đề tải bằng yt-dlp) — tổng hợp docs/knowledge/alden-k23.md,
+  ghi chú chi tiết 9 nhóm buổi ở docs/knowledge/alden-k23/. Hệ thống RSI + EMA9/WMA45 trên RSI + S/R; đề xuất 4 backtest
+  (lọc sideway không lực, lọc mô hình RSI, điểm vào sau quán tính, thoát 50% khi hết quán tính). Chưa đổi bot.
+
+## 2026-11-27 — v0.18.0 — Scalp giữ lệnh trong tuần, mô tả xu hướng từng lệnh
+- Bot scalp giữ lệnh trong tuần, đóng hết 15:30 NY thứ Sáu (người dùng chốt). Từng năm 2020–2026 (H1 + lọc S/R):
+  +120R, 340 lệnh, 3 năm lỗ (≈ −4R mỗi năm) so với đóng trong ngày +53R, 4 năm lỗ. Bản cũ lưu `one_day_intraday`.
+- Mỗi lệnh/tín hiệu ghi bối cảnh lúc vào lệnh (playbook/context.py → meta.context): xu hướng H4 EMA50/200, vĩ mô W1/D1
+  (từ ngày nào, mẫu hình gì), ADX D1; giao diện hiện mục "Xu hướng lúc vào lệnh".
+- Khoá lãi theo bậc (`profit_lock`, Order.lock_steps, simulator): swing 2R→+0.5R tổng R như cũ (+222R), hết lệnh lãi ≥ 2R
+  quay thành lỗ nhưng tiền 2025 (vốn 1.000$) thấp hơn → không bật; scalp không cải thiện.
+- Khoá K23 trên vàng (bộ lọc RSI, setup sau quán tính): không cải thiện → không bật. BTC (dữ liệu Binance): setup sau
+  quán tính H4 +33R/48 lệnh, ONE H4 +63R — tạm gác.
+- Giao diện: gộp Backtest vào trang "Thống kê & backtest". Backtest chạy phương pháp ONE (thay engine cũ): chọn nhiều
+  phương pháp, giai đoạn, vốn và % rủi ro riêng từng phương pháp (`main.py playbook --capital-by … --risk … --refresh`).
+- Bot live: chỉnh vốn và % rủi ro từng bot trên thẻ bot (execution/bot_settings.py, lưu trong kv journal bot, POST
+  /api/bots/{name}/settings); bot dùng giá trị mới từ lệnh kế tiếp. Vốn đặt tay = số đặt + lãi/lỗ đã chốt kể từ lúc đặt.
+- Sửa: cache/XAUUSD_spec.json ghi tick_value 0.1 (broker thật 1.0, hợp đồng 100 oz) → lot trong backtest bị phóng 10 lần
+  (tiền/R vẫn đúng; tài khoản nhỏ vào được lệnh mà thực tế không vào được). Lệnh `history` giờ lưu lại thông số thật.
+- Rủi ro: `risk_caps` (chặn % rủi ro theo mốc vốn, dùng mốc cao nhất đã đạt) và `max_lot` (trần lot mỗi lệnh), dùng cho
+  backtest (form + --overrides) và bot live (thẻ bot). Mặc định 2 bot: vốn ≥ 500$ tối đa 10%, ≥ 5.000$ tối đa 5%;
+  max_lot 2 (ký quỹ 3 lệnh × 2 lot ≈ 22.000$/bot ở 1:100). Lưới lot 1/2/3/5/10/∞ (2025–2026, mỗi bot 500$): swing
+  240k/294k/321k/321k$ — lot 2 giữ ~91%; scalp không vượt 0.08 lot.
+
+- Giao diện: vẽ tay trên chart (trendline / đường ngang / vùng, tẩy, 3 màu Ghi chú / Đúng / Sai) cho chart chính và
+  tab "Vẽ & nhận xét" của từng lệnh/tín hiệu (chart tương tác có trendline bot vẽ màu trắng + vào/SL/TP). Mỗi lệnh chọn
+  kết luận, lỗi sai (danh sách trong `config.yaml` mục `review`) và ghi chú; tự lưu vào `journal/reviews.db` theo
+  setup_key (lệnh đang mở → đã đóng giữ nguyên). `python main.py reviews [--out file]` xuất tổng hợp lỗi + R trung bình
+  theo lỗi + nét vẽ từng lệnh để sửa quy tắc rồi backtest lại. Không đổi logic vào lệnh (bot không tự học từ nhận xét).
+- Vẽ tay: sửa nét cũ (con trỏ: bấm chọn, kéo cả nét hoặc kéo đầu mút; bấm màu để đổi màu nét đang chọn; Delete xoá),
+  hoàn tác/làm lại Ctrl+Z / Ctrl+Y (hoặc Ctrl+Shift+Z) và nút trên thanh công cụ; "Xoá hết" lấy lại được bằng Ctrl+Z.
+- Nghiên cứu (chưa áp dụng live): `tl_retest` = phá trendline ĐA TỈ LỆ + retest (playbook/tl_scales.py): không cố định
+  độ dài đường, dò ở swing 3/5/8/13 trên H4 + D1, độ dốc tuỳ ý (hỗ trợ đi xuống / kháng cự đi lên), chờ retest tỉ lệ
+  theo độ dài đường. Từng năm 2020–2026 (lọc như one_swing): riêng tl_retest 75 lệnh +69.2R (bản chỉ cho đường nối đáy
+  đi lên: 59 lệnh +27.8R); gộp vào one_swing 328 lệnh +223.3R so với one_swing 281 lệnh +221.3R, DD năm 2025/2026 cao hơn.
+  `LineRules.any_slope` (mặc định tắt, giữ nguyên các phương pháp cũ); lệnh khung không có trong danh sách dời SL
+  (vd D1) dời theo khung lớn nhất ≤ khung lệnh (runner._nearest_trail) thay vì khung đầu danh sách.

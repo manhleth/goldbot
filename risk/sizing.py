@@ -37,13 +37,16 @@ def risk_budget(equity: float, risk_cfg: dict) -> float:
     raise ValueError(f"risk.sizing không hợp lệ: {mode}")
 
 
-def lot_size(risk_money: float, sl_distance: float, spec: SymbolSpec) -> float:
-    """Lot làm tròn XUỐNG theo bước lot (lỗ tại SL không vượt `risk_money`); 0 nếu dưới lot tối thiểu."""
+def lot_size(risk_money: float, sl_distance: float, spec: SymbolSpec, min_lot_fallback: bool = False) -> float:
+    """Lot làm tròn XUỐNG theo bước lot (lỗ tại SL không vượt `risk_money`); dưới lot tối thiểu → 0, hoặc lot tối thiểu
+    nếu `min_lot_fallback` (khi đó lỗ tại SL có thể vượt `risk_money`)."""
     per_lot = spec.money(sl_distance, 1.0)
     if per_lot <= 0 or risk_money <= 0:
         return 0.0
     lot = min(floor_to_step(risk_money / per_lot, spec.volume_step), spec.volume_max)
-    return lot if lot >= spec.volume_min else 0.0
+    if lot >= spec.volume_min:
+        return lot
+    return spec.volume_min if min_lot_fallback else 0.0
 
 
 def split_legs(lot: float, fraction: float, spec: SymbolSpec) -> tuple[float, ...]:
@@ -53,3 +56,29 @@ def split_legs(lot: float, fraction: float, spec: SymbolSpec) -> tuple[float, ..
     if first >= spec.volume_min and rest >= spec.volume_min:
         return first, rest
     return (lot,)
+
+
+def capped_risk(base_pct: float, caps, capital: float) -> float:
+    """% rủi ro bị chặn theo mốc vốn: `caps` = [[vốn ≥ X$, % tối đa], ...]; dùng mốc cao nhất đã đạt,
+    % = min(`base_pct`, % tối đa của mốc). Chưa đạt mốc nào → `base_pct`."""
+    pct = base_pct
+    for threshold, cap in sorted(caps or [], key=lambda c: c[0]):
+        if capital >= float(threshold):
+            pct = min(base_pct, float(cap))
+    return pct
+
+
+def cent_account(spec: SymbolSpec, scale: float) -> SymbolSpec:
+    """Thông số cho tài khoản cent: 1 lot cent = `scale` lot thường (thường 0.01) → giá trị tick × scale, lot tối đa
+    của broker tính theo lot cent. Tiền vẫn tính bằng USD."""
+    import dataclasses
+    return dataclasses.replace(spec, tick_value=spec.tick_value * scale, volume_max=spec.volume_max / scale)
+
+
+def capped(spec: SymbolSpec, max_lot: float | None) -> SymbolSpec:
+    """Thông số symbol với khối lượng tối đa mỗi lệnh = min(broker, `max_lot`)."""
+    if not max_lot:
+        return spec
+    import dataclasses
+    return dataclasses.replace(spec, volume_max=min(spec.volume_max, float(max_lot)))
+

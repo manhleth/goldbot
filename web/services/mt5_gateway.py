@@ -64,20 +64,39 @@ class MT5Gateway:
                 return None
             return {"login": info.login, "server": info.server, "name": info.name, "currency": info.currency,
                     "balance": info.balance, "equity": info.equity, "margin_free": info.margin_free,
+                    "margin": info.margin, "margin_level": info.margin_level, "profit": info.profit,
+                    "leverage": info.leverage,
                     "demo": info.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO,
                     "hedging": info.margin_mode == mt5.ACCOUNT_MARGIN_MODE_RETAIL_HEDGING}
         return self.call(read)
 
+    def owners(self) -> dict[int, str]:
+        """magic → chủ lệnh: bot cũ ("live") và từng bot ONE (tên trong `bots`)."""
+        owners = {self._cfg["mt5"]["magic"]: "live"}
+        owners.update({bot["magic"]: name for name, bot in self._cfg.get("bots", {}).items()})
+        return owners
+
     def positions(self) -> dict[int, dict]:
-        symbol, magic = self._cfg["symbol"], self._cfg["mt5"]["magic"]
+        """Lệnh đang mở của mọi bot (theo magic), kèm tên bot sở hữu."""
+        symbol, owners = self._cfg["symbol"], self.owners()
 
         def read(mt5) -> dict[int, dict]:
             found = mt5.positions_get(symbol=symbol) or ()
             return {p.ticket: {"ticket": p.ticket, "volume": p.volume, "price_open": p.price_open,
                                "price_current": p.price_current, "sl": p.sl, "tp": p.tp, "profit": p.profit,
-                               "buy": p.type == mt5.POSITION_TYPE_BUY, "comment": p.comment}
-                    for p in found if p.magic == magic}
+                               "swap": p.swap, "buy": p.type == mt5.POSITION_TYPE_BUY, "comment": p.comment,
+                               "time": int(p.time), "magic": p.magic, "bot": owners[p.magic]}
+                    for p in found if p.magic in owners}
         return self.call(read) or {}
+
+    def price_value(self) -> float | None:
+        """Tiền lời/lỗ khi giá chạy 1 đơn vị với 1 lot (tick_value / tick_size của symbol)."""
+        symbol = self._cfg["symbol"]
+
+        def read(mt5) -> float | None:
+            info = mt5.symbol_info(symbol)
+            return info.trade_tick_value / info.trade_tick_size if info and info.trade_tick_size else None
+        return self.call(read)
 
     def quote(self) -> dict | None:
         symbol = self._cfg["symbol"]

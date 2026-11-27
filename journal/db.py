@@ -59,7 +59,9 @@ class Journal:
 
     def _migrate(self) -> None:
         """Thêm cột mới cho journal cũ (không mất dữ liệu)."""
-        for table, columns in (("trades", ("chart",)), ("live_legs", ("meta", "exit_at", "trail", "chart", "bot"))):
+        added = (("trades", ("chart", "meta")), ("signals", ("meta",)),
+                 ("live_legs", ("meta", "exit_at", "trail", "chart", "bot")))
+        for table, columns in added:
             existing = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
             for column in columns:
                 if column not in existing:

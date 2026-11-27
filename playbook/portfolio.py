@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from playbook.orders import Order
 from playbook.simulator import OrderSimulator, Outcome
 from risk.management import trading_date
-from risk.sizing import SymbolSpec
+from risk.sizing import SymbolSpec, capped_risk
 
 
 @dataclass(frozen=True)
@@ -17,10 +17,12 @@ class Limits:
     max_per_day: int | None = None     # số lệnh KHỚP tối đa mỗi ngày giao dịch (None = không giới hạn)
     risk_pct: float | None = None      # % equity rủi ro mỗi lệnh; None = số tiền cố định của simulator
     initial_equity: float = 1000.0
+    risk_caps: tuple = ()              # chặn % rủi ro theo mốc vốn: ((vốn ≥ X$, % tối đa), ...)
 
     @classmethod
     def from_params(cls, p: Mapping) -> "Limits":
-        return cls(p["max_positions"], p.get("max_per_day"), p.get("risk_pct"), p["initial_equity"])
+        caps = tuple(tuple(c) for c in (p.get("risk_caps") or []))
+        return cls(p["max_positions"], p.get("max_per_day"), p.get("risk_pct"), p["initial_equity"], caps)
 
 
 def _money(outcome: Outcome, spec: SymbolSpec) -> float:
@@ -49,7 +51,8 @@ def simulate(orders: list[Order], sim: OrderSimulator, limits: Limits, spec: Sym
         risk_money = None
         if limits.risk_pct is not None:
             equity = limits.initial_equity + sum(_money(o, spec) for o in filled if o.end <= start)
-            risk_money = max(equity, 0.0) * limits.risk_pct / 100
+            pct = capped_risk(limits.risk_pct, limits.risk_caps, equity)
+            risk_money = max(equity, 0.0) * pct / 100
         outcome = sim.run(order, risk_money)
         outcomes.append(outcome)
         if outcome.status == "filled":

@@ -7,11 +7,14 @@ from pathlib import Path
 import pandas as pd
 import yaml
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from stats.metrics import summarize
 from stats.money import equity_curve, money_summary, monthly, r_histogram
 from stats.report import BREAKDOWNS, breakdown, build_report, signal_summary, verdict, with_dimensions
+from web.services.levels import money_levels, price_value, target_of
+from web.services.live_chart import render_leg_now
+from web.services.signal_chart import render_signal
 from web.state import AppState, get_state, is_live
 
 router = APIRouter(prefix="/api")
@@ -54,14 +57,26 @@ def trades(mode: str = "live", run: str | None = None, limit: int = 2000, state:
     with _journal(state, mode) as journal:
         where, params = _run_filter(journal, mode, run)
         rows = journal.rows(f"SELECT * FROM trades{where} ORDER BY entry_time DESC LIMIT ?", [*params, limit])
+    fallback = price_value(state.gateway.price_value(), state.cfg)
+    for row in rows:
+        row["levels"] = _closed_levels(row, fallback)
     return _clean(rows)
 
 
-@router.get("/charts/{mode}/{trade_id}")
-def trade_chart(mode: str, trade_id: int, state: AppState = Depends(get_state)) -> FileResponse:
-    """Chart lý do vào lệnh (SVG) của một lệnh; chỉ phục vụ file nằm trong thư mục charts của journal."""
+def _closed_levels(t: dict, fallback: float) -> dict:
+    """Lệnh đã đóng: giá trị 1 đơn vị giá suy từ chính lãi/lỗ thực tế (pnl = R × tiền rủi ro), không được thì spec."""
+    d = 1 if t["direction"] == "BUY" else -1
+    risk = abs(t["entry"] - t["sl"]) * t["volume"]
+    r, pnl = t.get("r_multiple") or 0.0, t.get("pnl")
+    value = abs(pnl / r) / risk if pnl and abs(r) > 1e-6 and risk > 0 else fallback
+    return money_levels(d, t["entry"], t["volume"], value, {
+        "sl": t["sl"], "tp": t.get("tp1"), "target": target_of(t.get("meta"), t.get("reasons"))})
+
+
+def _chart_file(state: AppState, mode: str, sql: str, key: int) -> FileResponse:
+    """Chart lý do vào lệnh (SVG); chỉ phục vụ file nằm trong thư mục charts của journal."""
     with _journal(state, mode) as journal:
-        rows = journal.rows("SELECT chart FROM trades WHERE id = ?", [trade_id])
+        rows = journal.rows(sql, [key])
     if not rows or not rows[0].get("chart"):
         raise HTTPException(404, "Lệnh này không có chart")
     path = Path(rows[0]["chart"]).resolve()
@@ -69,6 +84,53 @@ def trade_chart(mode: str, trade_id: int, state: AppState = Depends(get_state)) 
     if allowed not in path.parents or not path.is_file():
         raise HTTPException(404, "Không tìm thấy chart")
     return FileResponse(path, media_type="image/svg+xml")
+
+
+@router.get("/charts/{mode}/{trade_id}")
+def trade_chart(mode: str, trade_id: int, state: AppState = Depends(get_state)) -> FileResponse:
+    return _chart_file(state, mode, "SELECT chart FROM trades WHERE id = ?", trade_id)
+
+
+@router.get("/signal-charts/{mode}/{signal_id}")
+def signal_chart(mode: str, signal_id: int, state: AppState = Depends(get_state)) -> Response:
+    """Chart lý do của một tín hiệu: tín hiệu đã vào lệnh dùng chart của lệnh; tín hiệu bị bỏ thì vẽ theo yêu cầu."""
+    with _journal(state, mode) as journal:
+        rows = journal.rows("SELECT * FROM signals WHERE id = ?", [signal_id])
+        if not rows:
+            raise HTTPException(404, "Không có tín hiệu này")
+        signal = rows[0]
+        made = journal.rows("SELECT chart FROM live_legs WHERE setup_key = ? AND chart IS NOT NULL "
+                            "UNION ALL SELECT chart FROM trades WHERE setup_key = ? AND chart IS NOT NULL LIMIT 1",
+                            [signal["setup_key"], signal["setup_key"]]) if signal.get("setup_key") else []
+    allowed = (state.root / "journal" / "charts").resolve()
+    for row in made:
+        path = Path(row["chart"]).resolve()
+        if allowed in path.parents and path.is_file():
+            return FileResponse(path, media_type="image/svg+xml")
+    svg = render_signal(signal, state.cfg, state.gateway, f"TÍN HIỆU · {signal['setup_key'] or signal['setup']}")
+    if svg is None:
+        raise HTTPException(404, "Tín hiệu này chưa lưu hình học mẫu hình (tín hiệu cũ) nên không vẽ được chart")
+    return Response(svg, media_type="image/svg+xml")
+
+
+@router.get("/leg-charts/{mode}/{ticket}")
+def leg_chart(mode: str, ticket: int, state: AppState = Depends(get_state)) -> FileResponse:
+    """Chart lý do của lệnh đang mở (bảng live_legs)."""
+    return _chart_file(state, mode, "SELECT chart FROM live_legs WHERE ticket = ?", ticket)
+
+
+@router.get("/leg-charts/{mode}/{ticket}/now")
+def leg_chart_now(mode: str, ticket: int, state: AppState = Depends(get_state)) -> Response:
+    """Ảnh hiện tại của lệnh đang mở (vẽ theo yêu cầu từ nến mới nhất; không cache để luôn mới)."""
+    with _journal(state, mode) as journal:
+        rows = journal.rows("SELECT * FROM live_legs WHERE ticket = ?", [ticket])
+    if not rows:
+        raise HTTPException(404, "Không có lệnh này")
+    broker = state.gateway.positions().get(ticket)
+    svg = render_leg_now(rows[0], broker, state.cfg, state.gateway, pd.Timestamp.now(tz="UTC"))
+    if svg is None:
+        raise HTTPException(404, "Không lấy được dữ liệu nến để vẽ")
+    return Response(svg, media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
 
 
 @router.get("/signals")
@@ -84,18 +146,25 @@ def positions(state: AppState = Depends(get_state)) -> dict:
     legs = []
     for mode in ["live", *(f"bot:{name}" for name in state.cfg.get("bots", {}))]:
         with state.journal(mode) as journal:
-            legs += journal.rows("SELECT * FROM live_legs WHERE status = 'open' ORDER BY ticket")
+            rows = journal.rows("SELECT * FROM live_legs WHERE status = 'open' ORDER BY ticket")
+        legs += [{**row, "bot": row.get("bot") or mode.removeprefix("bot:")} for row in rows]
     broker = state.gateway.positions()
+    value = price_value(state.gateway.price_value(), state.cfg)
     for leg in legs:
-        leg["broker"] = broker.pop(leg["ticket"], None)
+        b = leg["broker"] = broker.pop(leg["ticket"], None)
+        entry = b["price_open"] if b else leg["entry"]
+        leg["levels"] = money_levels(int(leg["direction"]), entry, leg["volume"], value, {
+            "sl_initial": leg.get("initial_sl"), "sl": b["sl"] if b else leg["sl"],
+            "tp": (b["tp"] if b else leg.get("tp")) or None, "target": target_of(leg.get("meta"), leg.get("reasons"))})
     return {"legs": _clean(legs), "unmanaged": list(broker.values())}
 
 
 def _initial_equity(journal, mode: str, run_id: str | None, cfg: dict) -> float:
-    """Backtest: vốn ban đầu ghi trong config của chính lần chạy; live: equity lúc bot kết nối lần đầu."""
+    """Backtest: vốn ban đầu ghi trong config của chính lần chạy; live: equity lúc bot chạy lần đầu × phần vốn của bot."""
     if is_live(mode):
         stored = journal.get_kv("live_initial_equity")
-        return float(stored) if stored else float(cfg["backtest"]["initial_equity"])
+        share = float(journal.get_kv("capital_share") or 1.0)
+        return float(stored) * share if stored else float(cfg["backtest"]["initial_equity"])
     found = journal.rows("SELECT config FROM runs WHERE run_id = ?", [run_id])
     if found:
         return float(yaml.safe_load(found[0]["config"])["backtest"]["initial_equity"])

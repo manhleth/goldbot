@@ -188,6 +188,33 @@ journal:
   live_db: journal/live.db
   backtest_db: journal/backtest.db
 
+review:                     # vẽ tay + nhận xét từng lệnh trên giao diện (để tìm lỗi lặp lại, sửa quy tắc rồi backtest lại)
+  db: journal/reviews.db
+  pad_bars: 30              # nến trước mẫu hình / sau điểm thoát trên chart nhận xét
+  max_bars: 1500
+  roles:                    # loại nét vẽ: màu + ý nghĩa
+    - { key: note, label: "Ghi chú", color: "#ffb74d" }
+    - { key: right, label: "Đúng / nên làm", color: "#26a69a" }
+    - { key: wrong, label: "Sai", color: "#ef5350" }
+  verdicts:
+    - { key: good, label: "Lệnh đúng" }
+    - { key: bad, label: "Lệnh sai" }
+    - { key: unsure, label: "Chưa chắc" }
+  error_tags:
+    - { key: wrong_line, label: "Trendline vẽ sai" }
+    - { key: wrong_edge, label: "Vào sai biên (nên vào biên kia)" }
+    - { key: against_trend, label: "Ngược xu hướng khung lớn" }
+    - { key: sideway, label: "Thị trường nhiễu/sideway, không nên vào" }
+    - { key: near_sr, label: "Vào sát hỗ trợ/kháng cự cứng" }
+    - { key: weak_break, label: "Phá vỡ yếu / phá giả" }
+    - { key: late_entry, label: "Vào muộn, đuổi giá" }
+    - { key: early_entry, label: "Vào sớm, chưa xác nhận" }
+    - { key: sl_tight, label: "SL quá chặt" }
+    - { key: sl_wide, label: "SL quá xa" }
+    - { key: exit_early, label: "Chốt/dời SL quá sớm" }
+    - { key: exit_late, label: "Không chốt, lãi thành lỗ" }
+    - { key: news, label: "Vào sát tin mạnh" }
+
 stats:
   min_trades_any: 30
   min_trades_reliable: 100

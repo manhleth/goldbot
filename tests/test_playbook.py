@@ -181,3 +181,198 @@ def test_channel_bias_filter_uses_only_earlier_calls():
     assert [o.key for o in kept] == ["a", "b", "d"] and [r.reason for r in rejected] == ["against_channel_bias"]
     kept, rejected = apply_bias(orders, bias, valid_days=60, mode="strict")
     assert [o.key for o in kept] == ["a", "b"] and {r.reason for r in rejected} == {"against_channel_bias", "no_channel_bias"}
+
+
+def test_intraday_rules_close_before_friday_early_close():
+    from playbook.methods_unified import _intraday
+    rules = {"last_entry": "15:30", "flat": "16:30", "day_start": "17:00",
+             "friday": {"last_entry": "14:30", "flat": "15:30"}}
+    ny = "America/New_York"
+    at = lambda s: pd.Timestamp(s, tz=ny).tz_convert("UTC")  # noqa: E731
+    orders = [Order("thu", at("2026-07-23 10:00"), B, MARKET, sl_dist=1),     # thứ Năm → đóng 16:30
+              Order("fri", at("2026-07-24 10:00"), B, MARKET, sl_dist=1),     # thứ Sáu → đóng 15:30
+              Order("late", at("2026-07-24 14:45"), B, MARKET, sl_dist=1),    # thứ Sáu sau 14:30 → bỏ
+              Order("thu_eve", at("2026-07-23 18:00"), B, MARKET, sl_dist=1)]  # tối thứ Năm = ngày giao dịch thứ Sáu
+    out = {o.key: o.exit_at.tz_convert(ny).strftime("%a %H:%M") for o in _intraday(orders, ny, rules)}
+    assert out == {"thu": "Thu 16:30", "fri": "Fri 15:30", "thu_eve": "Fri 15:30"}
+
+
+def test_structure_trend_bos_trendline_warning_and_choch():
+    from playbook.trend_structure import structure_trend
+    from playbook.trendlines import LineRules
+    pts = [(0, 100), (3, 106), (6, 101), (9, 108), (12, 102), (15, 110), (18, 103), (21, 109), (23, 103.0),
+           (25, 105), (28, 100), (30, 99)]
+    df = _zigzag(pts, 31)
+    rules = LineRules(3, 0.3, 2, 8)
+    neutral = structure_trend(df, 2, "neutral", rules, 0.2, 3)
+    flip = structure_trend(df, 2, "flip", rules, 0.2, 3)
+    assert list(neutral[9:23]) == [1] * 14 and list(neutral[23:27]) == [0] * 4 and list(neutral[27:]) == [-1] * 4
+    assert list(flip[23:]) == [-1] * 8  # đảo chiều ngay khi trendline tăng bị phá
+    no_tl = structure_trend(df, 2, "neutral", rules, 0.2, 3, use_trendline=False)
+    assert list(no_tl[23:27]) == [1] * 4  # chỉ cấu trúc: vẫn tăng tới khi CHoCH
+
+
+def test_weekend_rules_hold_overnight_and_close_friday():
+    from playbook.methods_unified import _weekend
+    rules = {"day_start": "17:00", "last_entry": "14:30", "flat": "15:30"}
+    ny = "America/New_York"
+    at = lambda s: pd.Timestamp(s, tz=ny).tz_convert("UTC")  # noqa: E731
+    orders = [Order("sun", at("2026-07-19 19:00"), B, MARKET, sl_dist=1),     # tối Chủ nhật = phiên tuần mới
+              Order("wed", at("2026-07-22 10:00"), B, MARKET, sl_dist=1),
+              Order("fri", at("2026-07-24 10:00"), B, MARKET, sl_dist=1),
+              Order("late", at("2026-07-24 14:45"), B, MARKET, sl_dist=1)]  # thứ Sáu sau 14:30 → bỏ
+    out = {o.key: o.exit_at.tz_convert(ny).strftime("%m-%d %H:%M") for o in _weekend(orders, ny, rules)}
+    assert out == {"sun": "07-24 15:30", "wed": "07-24 15:30", "fri": "07-24 15:30"}
+
+
+def test_tf_hours_limits_timeframe_to_session():
+    from playbook.methods_unified import _tf_hours
+    ny = "America/New_York"
+    at = lambda s: pd.Timestamp(s, tz=ny).tz_convert("UTC")  # noqa: E731
+    orders = [Order("m15_ny", at("2026-07-22 09:00"), B, MARKET, sl_dist=1, meta={"tf": "M15"}),
+              Order("m15_asia", at("2026-07-22 20:00"), B, MARKET, sl_dist=1, meta={"tf": "M15"}),
+              Order("h1_asia", at("2026-07-22 20:00"), B, MARKET, sl_dist=1, meta={"tf": "H1"})]
+    kept = _tf_hours(orders, ny, {"M15": ["07:00", "16:00"]})
+    assert [o.key for o in kept] == ["m15_ny", "h1_asia"]
+
+
+def test_session_exit_asia_same_day_others_next_day_capped_friday():
+    from playbook.methods_unified import _session_exit
+    rules = {"day_start": "17:00", "friday": {"last_entry": "14:30", "flat": "15:30"},
+             "windows": [{"from": "17:00", "to": "02:00", "flat": "16:30", "days": 0},
+                         {"from": "02:00", "to": "17:00", "flat": "16:30", "days": 1}]}
+    ny = "America/New_York"
+    at = lambda s: pd.Timestamp(s, tz=ny).tz_convert("UTC")  # noqa: E731
+    orders = [Order("asia", at("2026-07-21 20:00"), B, MARKET, sl_dist=1),   # tối thứ Ba = ngày giao dịch thứ Tư
+              Order("ny", at("2026-07-22 09:00"), B, MARKET, sl_dist=1),     # thứ Tư → 16:30 thứ Năm
+              Order("thu", at("2026-07-23 10:00"), B, MARKET, sl_dist=1),    # thứ Năm → thứ Sáu đóng sớm 15:30
+              Order("late", at("2026-07-24 15:00"), B, MARKET, sl_dist=1)]   # thứ Sáu sau 14:30 → bỏ
+    out = {o.key: o.exit_at.tz_convert(ny).strftime("%a %H:%M") for o in _session_exit(orders, ny, rules)}
+    assert out == {"asia": "Wed 16:30", "ny": "Thu 16:30", "thu": "Fri 15:30"}
+
+
+
+def test_trail_tfs_skips_frames_missing_from_data():
+    from types import SimpleNamespace
+    from playbook.runner import trail_tfs
+    v = {"trail": {"tf": ["M5", "M15", "H2"]}}
+    assert trail_tfs(v) == ["M5", "M15", "H2"]
+    assert trail_tfs(v, SimpleNamespace(frames={"M15": None, "H2": None})) == ["M15", "H2"]
+
+
+def test_edge_pick_longest_and_wick_pierce():
+    """Ba đỉnh giảm dần, đỉnh giữa vượt đường thẳng nối đỉnh đầu–cuối 0.5 ATR: chỉ nhận khi cho phép râu xuyên."""
+    import numpy as np
+    from playbook.patterns import UPPER, Bars, _edge
+    n = 40
+    h = np.full(n, 90.0); low = h - 5; c = h - 2; o = c
+    for i, v in ((5, 110.0), (15, 107.0), (25, 100.0), (32, 98.0)):
+        h[i] = v
+    bars = Bars(o, h, low, c, np.full(n, 2.0), [5, 15, 25, 32], [], 3)
+    p = {"window_bars": 80, "max_pivots": 8, "zone_atr": 0.3}
+    strict = _edge(bars, UPPER, n - 1, {**p, "edge_pick": "longest"}, 0.6, 0.4, 2)
+    loose = _edge(bars, UPPER, n - 1, {**p, "edge_pick": "longest", "pierce_atr": 1.0}, 0.6, 0.4, 2)
+    newest = _edge(bars, UPPER, n - 1, {**p, "pierce_atr": 1.0}, 0.6, 0.4, 2)
+    assert (loose.i1, loose.i2) == (5, 32)          # dài nhất: râu đỉnh 15 xuyên 1.44 ≤ 2.0 vẫn nhận
+    assert (strict.i1, strict.i2) == (5, 15)        # không cho xuyên (≤ 0.6): chỉ còn đường ngắn 5→15
+    assert newest.i2 == 32                          # mặc định: điểm neo thứ hai mới nhất
+
+
+def test_edge_pick_list_builds_one_scan_per_mode():
+    from playbook.patterns import _picks
+    p = {"zone_atr": 0.3, "edge_pick": [{"pick": "touches", "pierce_atr": 1.0}, "newest"]}
+    out = _picks(p)
+    assert [(q["edge_pick"], q.get("pierce_atr")) for q in out] == [("touches", 1.0), ("newest", None)]
+    assert _picks({"zone_atr": 0.3})[0]["edge_pick"] == "newest"
+
+
+def test_min_lot_fallback_uses_minimum_volume_instead_of_skipping():
+    from risk.sizing import lot_size
+    # SL 30$ = 3.000$/lot → rủi ro 5$ chỉ đủ 0.0016 lot < tối thiểu 0.01
+    assert lot_size(5.0, 30.0, SPEC) == 0.0
+    assert lot_size(5.0, 30.0, SPEC, min_lot_fallback=True) == SPEC.volume_min
+
+
+def test_regime_exit_trend_trails_d1_sideways_takes_profit_early():
+    import numpy as np
+    from playbook.common import MarketData
+    from playbook.regime import apply_regime_exit
+    from playbook.runner import apply_variant
+    days = pd.date_range("2026-01-01", periods=60, freq="D", tz="UTC")
+    trend = np.arange(60) * 10.0 + 1000                       # tăng đều → ADX cao
+    d1 = pd.DataFrame({"time": days, "open": trend, "high": trend + 3, "low": trend - 3, "close": trend + 2,
+                       "close_time": days + pd.Timedelta(days=1)})
+    wave = 1000 + 20 * np.sin(np.arange(60) / 2.0)          # dao động quanh 1000 → ADX thấp
+    flat = d1.assign(open=wave, high=wave + 6, low=wave - 6, close=wave)
+    cfg = {"adx": {"tf": "D1", "period": 14, "threshold": 25}, "trend": {"trail_tf": "D1"}, "sideways": {"tp_r": 1.5}}
+    order = Order("one:flag@H4:x:BUY", days[-1] + pd.Timedelta(days=1), B, MARKET, sl_dist=10.0, tp=2000.0)
+    up = apply_regime_exit([order], MarketData({"D1": d1}, "UTC", 0.01, "M15"), cfg)[0]
+    side = apply_regime_exit([order], MarketData({"D1": flat}, "UTC", 0.01, "M15"), cfg)[0]
+    assert up.meta["regime"] == "trend" and up.meta["trail_tf"] == "D1" and up.tp == 2000.0
+    assert side.meta["regime"] == "sideways" and side.tp is None and side.tp_dist == 15.0
+    variant = {"take_profit": False, "trail": {"tf": ["H4", "D1"]}}
+    v_up, v_side = apply_variant([up, side], variant, "hold")
+    assert v_up.trail == "hold@D1" and v_up.tp is None           # xu hướng: bỏ TP, gồng theo D1
+    assert v_side.trail == "hold@H4" and v_side.tp_dist == 15.0   # đi ngang: giữ TP 1.5R
+
+
+def test_macro_blocks_orders_against_last_w1_breakout_and_scales_aligned_risk():
+    from playbook.macro import apply_macro
+    t0 = pd.Timestamp("2024-03-31", tz="UTC")
+    series = pd.DataFrame({"close_time": [t0 - pd.Timedelta(days=700), t0], "state": [-1, 1]})
+    buy = Order("b", t0 + pd.Timedelta(days=3), B, MARKET, sl_dist=1)
+    sell = Order("s", t0 + pd.Timedelta(days=3), S, MARKET, sl_dist=1)
+    early = Order("e", t0 - pd.Timedelta(days=900), B, MARKET, sl_dist=1)     # trước mọi cú phá → trạng thái 0
+    out = apply_macro([early, buy, sell], series, {"mode": "block_against", "risk_with": 1.5, "risk_neutral": 0.5})
+    assert [o.key for o in out] == ["e", "b"]
+    assert out[0].risk_scale == 0.5 and out[1].risk_scale == 1.5 and out[1].meta["macro"] == 1
+
+
+def test_macro_confirmed_break_needs_long_pattern_and_holding_closes(monkeypatch):
+    import numpy as np
+    from playbook.macro import confirmed_breaks
+    from playbook.patterns import Edge, Signal
+    import playbook.macro as macro
+    n = 80
+    t = pd.date_range("2020-01-05", periods=n, freq="7D", tz="UTC")
+    close = np.full(n, 100.0)
+    close[61:64] = [112.0, 113.0, 109.0]                        # phá ở nến 60, giữ 2 nến rồi thủng lại
+    df = pd.DataFrame({"time": t, "close": close, "close_time": t + pd.Timedelta(days=7)})
+    flat = Edge(0, 110.0, 40, 110.0, 3)
+    sigs = [Signal(60, B, "neckline_break", 110.0, 130.0, "", (flat,)),            # dài 60 nến
+            Signal(60, B, "neckline_break", 110.0, 130.0, "", (Edge(50, 110.0, 55, 110.0, 3),))]  # chỉ 10 nến
+    monkeypatch.setattr(macro, "scan_all", lambda df_, p, swing: sigs)
+    two = confirmed_breaks(df, {"patterns": {}, "swing": 3, "min_span": 52, "confirm_bars": 2})
+    three = confirmed_breaks(df, {"patterns": {}, "swing": 3, "min_span": 52, "confirm_bars": 3})
+    assert [(x[0], x[1]) for x in two] == [(df["close_time"].iat[62], 1)]   # mẫu hình 10 nến bị loại
+    assert three == []                                                       # nến thứ 3 đóng lại dưới cạnh
+
+
+def test_rsi_course_wma_and_sideway_flag():
+    import numpy as np
+    from playbook.rsi_course import _sideway_flags, wma
+    s = pd.Series(np.arange(1.0, 11.0))
+    assert wma(s, 3).iat[-1] == pytest.approx((8 * 1 + 9 * 2 + 10 * 3) / 6)
+    t = pd.date_range("2026-01-01", periods=30, freq="4h", tz="UTC")
+    calm = pd.DataFrame({"close_time": t, "rsi": 50 + 5 * np.sin(np.arange(30))})
+    spiky = calm.assign(rsi=np.r_[np.full(25, 50.0), [75, 55, 52, 50, 49]])
+    cfg = {"band": [40, 60], "extremes": [30, 70], "window": 10}
+    assert bool(_sideway_flags(calm, cfg)["flag"].iat[-1])
+    assert not bool(_sideway_flags(spiky, cfg)["flag"].iat[-1])   # vừa có RSI 75 trong 10 nến → có lực
+
+
+def test_lock_steps_move_stop_to_locked_profit():
+    # vào 100 (SL 90 → R = 10): lên 121 (≥ 2R → khoá +0.5R = 105), rồi rơi về 100 → thoát ở 105, +0.5R
+    rows = [(100, 100, 100, 100), (100, 121, 100, 120), (120, 120, 100, 100), (100, 100, 100, 100)]
+    order = Order("k", _t(0), B, MARKET, sl_dist=10, lock_steps=((2.0, 0.5), (4.0, 2.0)))
+    out = _sim(rows).run(order)
+    assert out.legs[0].exit_reason == "lock" and out.legs[0].exit_price == pytest.approx(105.0)
+
+
+def test_capped_risk_and_lot_cap():
+    from risk.sizing import capped, capped_risk, lot_size
+    caps = [[5000, 5.0], [500, 10.0]]
+    assert capped_risk(20.0, caps, 300) == 20.0 and capped_risk(20.0, caps, 500) == 10.0
+    assert capped_risk(20.0, caps, 8000) == 5.0 and capped_risk(3.0, caps, 8000) == 3.0   # không tăng rủi ro
+    assert lot_size(1_000_000, 10.0, capped(SPEC, 5)) == 5.0          # trần 5 lot
+    assert capped(SPEC, None) is SPEC

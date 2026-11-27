@@ -19,7 +19,7 @@ variants:                    # quản lý lệnh dùng chung, chọn bằng --va
   hold_tf:
     title: "gồng theo đỉnh/đáy khung mẫu hình"
     take_profit: false
-    trail: { tf: [M15, H1, H4], swing: 3, buffer_atr: 0.2, atr: 14 }   # mỗi lệnh dời SL theo khung mẫu hình của nó
+    trail: { tf: [M5, M15, M30, H1, H2, H4], swing: 3, buffer_atr: 0.2, atr: 14 }   # mỗi lệnh dời SL theo khung mẫu hình của nó
   hold_d1:
     title: "gồng theo đỉnh/đáy D1"
     take_profit: false
@@ -286,27 +286,108 @@ methods:
     asia_box: { box: ["00:00", "07:00"], min_coverage: 1.0, min_width: 1.5, offset: 0.10, sl_offset: 0.50,
                 tp_r: 2.0, cancel: "12:00" }
     learning: { min_trades: 5, window: 20, min_expectancy: 0.0 }
-    channel_bias: { valid_days: 60, mode: block_against }   # chặn lệnh ngược hướng nhận định MJ Capital còn hiệu lực 60 ngày; null = tắt
+    context: { adx: { tf: D1, period: 14, strong: 25, weak: 20 } }   # bối cảnh ghi vào từng lệnh (chỉ để xem lại)
+    channel_bias: null       # tắt (người dùng 2026-11-25): MJ Capital chỉ là nguồn học cách vẽ/phân tích. Bật lại: { valid_days: 60, mode: block_against }
 
-  # ---- HAI BOT CHẠY SONG SONG (cùng phương pháp ONE) ----
-  one_swing:
+  # ---- HAI BOT CHẠY SONG SONG (cùng phương pháp ONE), mỗi bot một nửa tài khoản ----
+  one_swing: &swing
     <<: *uni
-    title: "BOT SWING · ONE H4, tối đa 5 lệnh (nhồi lệnh)"
-    max_positions: 5         # tín hiệu đạt chuẩn thì vào thêm, kể cả cùng chiều lệnh đang mở (nhồi lệnh dương)
-    risk_pct: 5.0            # % equity rủi ro mỗi lệnh (người dùng chọn; backtest cho thấy rủi ro cháy tài khoản cao)
+    title: "BOT SWING · ONE H2+H4, 1/2 vốn, 10%/lệnh, tối đa 3 lệnh"
+    capital_share: 0.5       # bot dùng 50% tài khoản như tài khoản riêng (vốn = 50% equity ban đầu + lãi/lỗ của bot)
+    max_positions: 3         # tối đa 3 lệnh mở cùng lúc (tín hiệu đạt chuẩn cùng chiều vẫn vào thêm)
+    risk_pct: 10.0           # % phần vốn của bot rủi ro mỗi lệnh (= 5% toàn tài khoản)
+    risk_caps: [[500, 10], [5000, 5]]   # vốn ≥ 500$: rủi ro tối đa 10%/lệnh; ≥ 5.000$: tối đa 5% (người dùng 2026-11-27)
+    max_lot: 2               # lot tối đa mỗi lệnh: 3 lệnh × 2 lot ≈ 22.000$ ký quỹ/bot (1:100) — giữ ~91% lãi backtest
+    sr:                      # chỉ lọc theo vùng S/R cứng W1 + D1 (người dùng chốt 2026-11-25)
+      timeframes:            # vùng hết hiệu lực khi lần chạm gần nhất cũ hơn max_age nến
+        W1: { swing: 2, lookback: 52, max_age: 26 }    # lookback ≤ 52 tuần để vừa cửa sổ live signal_days 400
+        D1: { swing: 2, lookback: 250, max_age: 120 }
+      atr: 14
+      tol_atr: 0.5
+      min_touches: 2
+      room: { min_r: 0.5 }   # bỏ lệnh nếu vùng cản phía trước gần hơn 0.5 × khoảng SL
+      break_bonus: null
+      take_partial: null
+    patterns:                # mẫu hình H2 + H4 (người dùng chốt 2026-11-25; H1 thêm vào DD 71% → bỏ)
+      <<: *pat
+      timeframes: [H2, H4]
+      swing: { H2: 3, H4: 3 }
+      kinds: [flag, triangle_break, channel_break, neckline_break]
+      pierce_atr: 1.0        # râu swing được xuyên cạnh tới 1 ATR (trendline cắt qua râu, chỉ đóng cửa mới làm hỏng đường)
+      edge_pick: [touches, newest]   # quét cả cạnh nhiều điểm chạm nhất lẫn cạnh mới nhất, gộp tín hiệu (2026-11-25)
+    macro:                   # vĩ mô theo cú phá mẫu hình DÀI HẠN có xác nhận (playbook/macro.py), người dùng chốt 2026-11-26
+      mode: block_against    # sau cú phá dài hạn: bỏ lệnh ngược chiều (kênh D1 đang chạy được ưu tiên — hiện tắt)
+      frames:
+        W1: { swing: 3, min_span: 52, confirm_bars: 2, patterns: &macro_pat { atr: 14, max_pivots: 10, min_touches: 2,
+              neck_touches: 3, zone_atr: 0.3, break_atr: 0.2, min_height_atr: 1.5, max_height_atr: 20, parallel_tol: 0.3,
+              pole_bars: 20, pole_atr: 4.0, pole_height_ratio: 1.0, window_bars: 300, min_bars: 26, edge_pick: touches } }
+        D1: { swing: 3, min_span: 120, confirm_bars: 3, patterns: *macro_pat }
 
   one_day: &day
     <<: *uni
-    title: "BOT TRONG NGÀY · ONE M15+H1, tối đa 10 lệnh/ngày"
-    max_positions: 5
-    max_per_day: 10
-    risk_pct: 5.0
+    title: "BOT SCALP · ONE H1, 1/2 vốn, 5%/lệnh, giữ lệnh trong tuần"
+    capital_share: 0.5       # 50% tài khoản còn lại
+    max_positions: 3         # tối đa 3 lệnh mở cùng lúc
+    max_per_day: 10          # tối đa 10 lệnh khớp mỗi ngày giao dịch
+    risk_pct: 5.0            # % phần vốn của bot rủi ro mỗi lệnh (= 2,5% toàn tài khoản)
+    risk_caps: [[500, 10], [5000, 5]]   # vốn ≥ 500$: rủi ro tối đa 10%/lệnh; ≥ 5.000$: tối đa 5% (người dùng 2026-11-27)
+    max_lot: 2               # lot tối đa mỗi lệnh: 3 lệnh × 2 lot ≈ 22.000$ ký quỹ/bot (1:100) — giữ ~91% lãi backtest
+    patterns:
+      <<: *pat
+      timeframes: [H1]       # chỉ giao dịch khung H1 trở lên (người dùng 2026-11-25); M15 bỏ
+      swing: { H1: 3 }
+      kinds: [flag, triangle_break, channel_break, neckline_break]
+    sr:                      # vùng hỗ trợ/kháng cự cứng (playbook/sr_zones.py), người dùng chốt 2026-11-25
+      timeframes:            # vùng hết hiệu lực khi lần chạm gần nhất cũ hơn max_age nến
+        D1: { swing: 2, lookback: 250, max_age: 120 }
+        H4: { swing: 3, lookback: 300, max_age: 180 }
+      atr: 14
+      tol_atr: 0.5           # gom swing cách nhau ≤ 0.5 × ATR của khung thành một vùng
+      min_touches: 2
+      room: { min_r: 0.5 }   # bỏ lệnh nếu vùng cản phía trước gần hơn 0.5 × khoảng SL
+      break_bonus: null      # đã thử: không cải thiện
+      take_partial: null     # đã thử: làm kém đi
+    # giữ lệnh trong tuần, đóng hết 15:30 NY thứ Sáu (người dùng chốt 2026-11-27; từng năm 2020–2026 cùng lọc S/R:
+    # +120R, 3 năm lỗ nhỏ, so với đóng trong ngày +53R, 4 năm lỗ)
+    weekend: { day_start: "17:00", last_entry: "14:30", flat: "15:30" }   # giờ New York; thứ Sáu sàn đóng sớm 15:55
+
+  one_day_intraday:          # so sánh: đóng hết 16:30 NY mỗi ngày (từng năm 2020–2026: +53R, 4 năm lỗ)
+    <<: *day
+    title: "BOT SCALP · ONE H1, đóng lệnh trong ngày"
+    weekend: null
+    intraday: { last_entry: "15:30", flat: "16:30", day_start: "17:00",
+                friday: { last_entry: "14:30", flat: "15:30" } }
+
+  one_day_weekend:           # so sánh: giữ qua đêm, chỉ đóng 15:30 NY thứ Sáu (2026: E +0.245R, DD 54.9%)
+    <<: *day
+    title: "BOT SCALP · ONE H1, giữ qua đêm tới cuối tuần"
+    sr: null                 # kết quả ghi chú là khi chưa có lọc S/R
+    intraday: null
+    weekend: { day_start: "17:00", last_entry: "14:30", flat: "15:30" }
+
+  one_day_hybrid:            # so sánh: lệnh phiên Á đóng 16:30 cùng ngày, London/NY giữ tới cuối tuần (2026: DD 44.6%)
+    <<: *day
+    title: "BOT SCALP · ONE H1, lai theo phiên"
+    sr: null                 # kết quả ghi chú là khi chưa có lọc S/R
+    intraday: null
+    session_exit:
+      day_start: "17:00"
+      friday: { last_entry: "14:30", flat: "15:30" }
+      windows: [ { from: "17:00", to: "02:00", flat: "16:30", days: 0 },
+                 { from: "02:00", to: "17:00", flat: "16:30", days: null } ]
+
+  one_day_ny_m15:            # so sánh: thêm mẫu hình M15 chỉ trong phiên New York, giữ qua đêm (2026: DD 65.9%)
+    <<: *day
+    title: "BOT SCALP · H1 + M15 phiên NY, giữ qua đêm"
+    sr: null                 # kết quả ghi chú là khi chưa có lọc S/R
+    intraday: null
+    weekend: { day_start: "17:00", last_entry: "14:30", flat: "15:30" }
     patterns:
       <<: *pat
       timeframes: [M15, H1]
       swing: { M15: 3, H1: 3 }
       kinds: [flag, triangle_break, channel_break, neckline_break]
-    intraday: { last_entry: "15:30", flat: "16:30", day_start: "17:00" }   # giờ New York
+      tf_hours: { M15: ["07:00", "16:00"] }   # giờ New York
 
   one_day_m15:
     <<: *day
@@ -325,3 +406,34 @@ methods:
       timeframes: [H1]
       swing: { H1: 3 }
       kinds: [flag, triangle_break, channel_break, neckline_break]
+
+  one_scalp_m5:
+    <<: *day
+    title: "BOT SCALP · biến thể mẫu hình M5 (chỉ backtest, live cần khung gốc M5)"
+    patterns:
+      <<: *pat
+      timeframes: [M5]
+      swing: { M5: 3 }
+      kinds: [flag, triangle_break, channel_break, neckline_break]
+
+  # ---- Phá trendline ĐA TỈ LỆ + retest (playbook/tl_scales.py): không cố định độ dài đường, dò ở nhiều cỡ swing ----
+  one_swing_tl:
+    <<: *swing
+    title: "SWING + phá trendline đa tỉ lệ H4/D1 + retest"
+    triggers: [patterns, tl_retest]
+    tl_scales: &tls
+      timeframes: [H4, D1]
+      swings: [3, 5, 8, 13]      # fractal mỗi bên: lớn dần → đường dài dần (không quy định số ngày)
+      rules: { min_touches: 3, touch_tol_atr: 0.3, max_pivots: 12 }
+      break_atr: 0.2
+      atr: 14
+      confirm_tf: { H4: H1, D1: H4 }
+      retest: { span_frac: 0.5, min_bars: 3, zone_atr: 0.3, invalid_atr: 0.5, sl_buffer_atr: 0.3, max_sl_atr: 2.5,
+                trigger: { pin_wick_body_ratio: 2.0, pin_min_wick_range: 0.5 } }
+
+  tl_scales_only:
+    <<: *swing
+    title: "Chỉ phá trendline đa tỉ lệ H4/D1 + retest"
+    triggers: [tl_retest]
+    tl_scales: *tls
+

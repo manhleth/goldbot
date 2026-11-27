@@ -34,7 +34,32 @@ export const REJECT_LABEL: Record<string, string> = {
   atr_unavailable: "Chưa có ATR",
   outside_killzone: "Ngoài killzone",
   after_flat_time: "Sau giờ đóng lệnh (flat_time)",
+  learning_insufficient: "Loại mẫu hình chưa đủ kết quả nháp",
+  learning_negative: "Loại mẫu hình đang thua gần đây",
+  against_channel_bias: "Ngược hướng channel MJ Capital",
+  no_channel_bias: "Không có nhận định channel",
+  max_trades_per_day: "Đủ số lệnh trong ngày",
+  stale_signal: "Tín hiệu cũ",
+  stop_file: "Kill switch đang bật",
+  order_failed: "Gửi lệnh thất bại",
+  lot_too_small: "Lot nhỏ hơn mức tối thiểu",
+  expired: "Lệnh chờ hết hạn",
+  cancelled: "Lệnh chờ bị huỷ",
 };
+
+/** Loại mẫu hình của ONE (phần `loại@khung` trong khoá lệnh). */
+export const KIND_LABEL: Record<string, string> = {
+  flag: "Cờ", triangle_break: "Phá tam giác", channel_break: "Phá kênh", neckline_break: "Thủng neckline",
+  channel_bounce: "Bật cạnh kênh", broadening_break: "Phá mẫu hình loe", asia_box: "Phá hộp Á",
+};
+
+/** "flag@H4" hoặc khoá "one_swing:flag@H4:2026…:BUY" → "Cờ · H4". */
+export function kindLabel(value: string | null | undefined): string {
+  if (!value) return "—";
+  const part = value.includes(":") ? value.split(":")[1] ?? value : value;
+  const [kind, tf] = part.split("@");
+  return `${KIND_LABEL[kind] ?? kind}${tf ? ` · ${tf}` : ""}`;
+}
 
 export const NEWS_LABEL: Record<string, string> = {
   aligned: "Cùng chiều", against: "Ngược chiều", neutral: "Trung tính", none: "Không có tin",
@@ -48,4 +73,4 @@ export const RULE_LABEL: Record<string, string> = {
 
 export const label = (map: Record<string, string>, key: string | null | undefined) => (key ? map[key] ?? key : "—");
 
-export const BOT_LABEL: Record<string, string> = { swing: "Bot swing", day: "Bot trong ngày" };
+export const BOT_LABEL: Record<string, string> = { swing: "Bot swing", day: "Bot trong ngày", live: "Bot cũ" };

@@ -102,11 +102,12 @@ class Outcome:
 
 class OrderSimulator:
     def __init__(self, bars: Bars, spec: SymbolSpec, risk_money: float, slippage_points: float,
-                 events: list[Event], trails: dict[str, TrailSeries] | None = None) -> None:
+                 events: list[Event], trails: dict[str, TrailSeries] | None = None, min_lot_fallback: bool = False) -> None:
         self._b = bars
         self._trails = trails or {}
         self._spec = spec
         self._risk_money = risk_money
+        self._min_lot_fallback = min_lot_fallback  # lot tính ra < tối thiểu: vào lot tối thiểu thay vì bỏ
         self._slip = slippage_points * spec.point
         self._events = sorted(events, key=lambda e: e.time)
 
@@ -173,7 +174,8 @@ class OrderSimulator:
         risk = order.planned_risk
         if risk is None or not risk > 0:
             return Outcome(order, "skipped", "bad_stop", order.time, order.time)
-        lot = lot_size(self._risk_money if risk_money is None else risk_money, risk, self._spec)
+        base = self._risk_money if risk_money is None else risk_money
+        lot = lot_size(base * order.risk_scale, risk, self._spec, self._min_lot_fallback)
         if lot <= 0:
             return Outcome(order, "skipped", "lot_too_small", order.time, order.time)
         fill_index, value = self._fill(order)
@@ -193,16 +195,18 @@ class OrderSimulator:
         risk = abs(entry - sl)
         tp1 = entry + d * order.tp1_dist if order.tp1_dist is not None else None
         volumes = split_legs(lot, order.tp1_fraction, self._spec) if tp1 is not None else (lot,)
+        locks: list[tuple[float, float, str]] = []  # (khoảng chạy thuận kích hoạt, SL mới tính từ giá vào, nhãn)
         if len(volumes) == 2:
             legs = [Leg(volumes[0], tp1, "tp1"), Leg(volumes[1], tp, "runner")]
-            be_dist = None
         else:
             legs = [Leg(lot, tp, "single")]
-            be_dist = order.tp1_dist  # không chia được: dời hòa vốn khi tới mức TP1
+            if order.tp1_dist is not None:  # không chia được: dời hòa vốn khi tới mức TP1
+                locks.append((order.tp1_dist, order.be_offset, "breakeven"))
         if order.be_trigger is not None:
-            be_dist = order.be_trigger
+            locks = [(order.be_trigger, order.be_offset, "breakeven")]
         elif order.be_trigger_r is not None:
-            be_dist = order.be_trigger_r * risk
+            locks = [(order.be_trigger_r * risk, order.be_offset, "breakeven")]
+        locks = sorted(locks + [(t * risk, lock_r * risk, "lock") for t, lock_r in order.lock_steps])
         out = Outcome(order, "filled", start=self.start_time(order), entry_time=b.ts(f), entry=entry, sl=sl,
                       tp=tp, tp1=tp1, spread=float(b.spread[f]), legs=legs)
         limit = self._limit_index(order, f)
@@ -220,6 +224,7 @@ class OrderSimulator:
             near = (min if d == Direction.BUY else max)(targets) if targets else None
             tp_hit = np.zeros_like(sl_hit) if near is None else ((h >= near) if d == Direction.BUY else (l <= near))
             fav = (h - entry) if d == Direction.BUY else (entry - l)
+            be_dist = locks[0][0] if locks else None
             be_hit = (fav >= be_dist) if be_dist is not None else np.zeros_like(sl_hit)
             if first_bar:
                 tp_hit[0] = be_hit[0] = False
@@ -243,13 +248,15 @@ class OrderSimulator:
                     if leg.tp is not None and ((h[k] >= leg.tp) if d == Direction.BUY else (l[k] <= leg.tp)):
                         leg.exit_price, leg.exit_reason = float(leg.tp), "tp1" if leg.name == "tp1" else "tp"
                 if any(leg.name == "tp1" and leg.exit_reason == "tp1" for leg in legs):
-                    be_dist = 0.0  # sau TP1: dời phần còn lại về hòa vốn ngay từ nến sau
+                    locks.insert(0, (0.0, order.be_offset, "breakeven"))  # sau TP1: dời phần còn lại về hòa vốn ngay
+                    be_dist = 0.0
                 out.end = b.ts(bar) + b.step
             if be_dist is not None and fav[k] >= be_dist:
-                new_sl = entry + d * order.be_offset
+                offset, kind = max((o_, k_) for t_, o_, k_ in locks if fav[k] >= t_)
+                locks = [lock for lock in locks if fav[k] < lock[0]]
+                new_sl = entry + d * offset
                 if (new_sl - sl) * d > 0:
-                    sl, sl_kind = new_sl, "breakeven"
-                be_dist = None
+                    sl, sl_kind = new_sl, kind
             i, first_bar = bar + 1, False
         exit_index = min(b.index_at(out.end), len(b)) if out.end is not None else f + 1
         self._excursion(out, f, max(exit_index, f + 1))

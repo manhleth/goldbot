@@ -2,28 +2,28 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 import type { Source } from "../api/client";
 
 export type Overlay = "ema" | "sr" | "fvg" | "ob" | "swings" | "setups" | "trades" | "news";
-export type BottomTab = "stats" | "trades" | "signals" | "backtest" | "config" | "logs";
+export type Page = "overview" | "chart" | "trades" | "signals" | "stats" | "backtest" | "config" | "logs";
 
 interface UiState {
+  page: Page;
+  setPage: (p: Page) => void;
   tf: string | null;
   setTf: (tf: string) => void;
   source: Source;
   setSource: (s: Source) => void;
   overlays: Record<Overlay, boolean>;
   toggleOverlay: (o: Overlay) => void;
-  chartVisible: boolean;
-  setChartVisible: (v: boolean) => void;
-  bottomTab: BottomTab;
-  setBottomTab: (t: BottomTab) => void;
 }
 
 const DEFAULT_OVERLAYS: Record<Overlay, boolean> = {
-  ema: true, sr: true, fvg: true, ob: false, swings: false, setups: true, trades: true, news: true,
+  ema: true, sr: false, fvg: false, ob: false, swings: false, setups: false, trades: true, news: true,
 };
 const STORAGE_KEY = "goldbot.ui";
 
+type Saved = Partial<{ overlays: Record<Overlay, boolean>; tf: string; page: Page; source: Source }>;
+
 /** Chỉ lưu tiện ích hiển thị của người xem; trình duyệt chặn storage thì vẫn chạy bình thường. */
-function load(): Partial<{ overlays: Record<Overlay, boolean>; chartVisible: boolean; tf: string }> {
+function load(): Saved {
   try {
     return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
   } catch {
@@ -31,7 +31,7 @@ function load(): Partial<{ overlays: Record<Overlay, boolean>; chartVisible: boo
   }
 }
 
-function save(patch: object) {
+function save(patch: Saved) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...load(), ...patch }));
   } catch {
@@ -43,14 +43,14 @@ const Ctx = createContext<UiState | null>(null);
 
 export function UiProvider({ children }: { children: ReactNode }) {
   const saved = useMemo(load, []);
+  const [page, setPageState] = useState<Page>(saved.page ?? "overview");
   const [tf, setTfState] = useState<string | null>(saved.tf ?? null);
-  const [source, setSource] = useState<Source>("bot:swing");
+  const [source, setSourceState] = useState<Source>(saved.source ?? "bot:swing");
   const [overlays, setOverlays] = useState({ ...DEFAULT_OVERLAYS, ...saved.overlays });
-  const [chartVisible, setChartVisibleState] = useState(saved.chartVisible ?? true);
-  const [bottomTab, setBottomTab] = useState<BottomTab>("stats");
 
+  const setPage = useCallback((p: Page) => { setPageState(p); save({ page: p }); }, []);
   const setTf = useCallback((value: string) => { setTfState(value); save({ tf: value }); }, []);
-  const setChartVisible = useCallback((v: boolean) => { setChartVisibleState(v); save({ chartVisible: v }); }, []);
+  const setSource = useCallback((s: Source) => { setSourceState(s); save({ source: s }); }, []);
   const toggleOverlay = useCallback((o: Overlay) => {
     setOverlays((prev) => {
       const next = { ...prev, [o]: !prev[o] };
@@ -60,8 +60,8 @@ export function UiProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ tf, setTf, source, setSource, overlays, toggleOverlay, chartVisible, setChartVisible, bottomTab, setBottomTab }),
-    [tf, setTf, source, overlays, toggleOverlay, chartVisible, setChartVisible, bottomTab],
+    () => ({ page, setPage, tf, setTf, source, setSource, overlays, toggleOverlay }),
+    [page, setPage, tf, setTf, source, setSource, overlays, toggleOverlay],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

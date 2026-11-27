@@ -56,6 +56,7 @@ class LineRules:
     touch_tol_atr: float
     channel_min_touches: int
     max_pivots: int
+    any_slope: bool = False   # True: đường nối đáy/đỉnh được dốc theo mọi hướng (hỗ trợ đi xuống, kháng cự đi lên)
 
 
 def _channel(line: Line, side: Direction, opposite: list[int], prices: np.ndarray, tol: float,
@@ -78,7 +79,7 @@ def _candidate(pivots: list[int], prices: np.ndarray, opposite: list[int], opp_p
     b = recent[-1]
     best: Line | None = None
     for a in reversed(recent[:-1]):
-        if (prices[b] - prices[a]) * side <= 0:
+        if not rules.any_slope and (prices[b] - prices[a]) * side <= 0:
             continue
         probe = Line(a, prices[a], b, prices[b], 0)
         on = [p for p in recent if a <= p <= b]

@@ -269,3 +269,10 @@ Xem file `config.yaml` ở gốc project (đã mở rộng từ mẫu ban đầu
 - Bot live mới: `python main.py bot --name swing|day [--dry-run]` (`execution/one_bot.py` + `playbook/live_engine.py`).
   Bot cũ (`main.py live`, range_breakout) không còn dùng. Mỗi bot magic + journal riêng (`bots` trong config.yaml).
 - Live phải loại nến khung lớn chưa đóng (`build_market(..., now)`), quét mẫu hình tăng dần (`scan_since`).
+
+## 18. Vẽ tay + nhận xét lệnh
+
+- Chart chính và tab "Vẽ & nhận xét" của từng lệnh (`frontend/src/components/chart/DrawingLayer.tsx`,
+  `components/trades/ReviewPanel.tsx`) lưu vào `journal/reviews.db` (`journal/reviews.py`, API `web/routes/review.py`).
+- Khi người dùng nhờ "học từ nhận xét": chạy `python main.py reviews`, tìm lỗi lặp lại, đề xuất quy tắc xác định, backtest
+  lại rồi mới áp dụng. Không để bot tự đổi quy tắc từ nhận xét.

@@ -1,8 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { notifications } from "@mantine/notifications";
 import { api, isLiveSource, send, sourceQuery, type Source } from "./client";
 import type {
-  Analysis, BacktestStatus, CandlesResp, NewsResp, PositionsResp, Report, Run, SignalRow, Status, Trade,
+  Analysis, BacktestMethod, BacktestRequest, BacktestStatus, BotSummary, CandlesResp, NewsResp, PositionsResp, Report,
+  ReviewChartData, ReviewItem, ReviewOptions, Run, SignalRow, Status, Trade,
 } from "./types";
 
 const SECOND = 1000;
@@ -21,6 +22,9 @@ export const useAnalysis = (tf: string | null) =>
     queryKey: ["analysis", tf], enabled: !!tf, refetchInterval: 30 * SECOND,
     queryFn: () => api<Analysis>(`/api/analysis?tf=${tf}`),
   });
+
+export const useBots = () =>
+  useQuery({ queryKey: ["bots"], queryFn: () => api<BotSummary[]>("/api/bots/summary"), refetchInterval: 10 * SECOND });
 
 export const usePositions = () =>
   useQuery({ queryKey: ["positions"], queryFn: () => api<PositionsResp>("/api/positions"), refetchInterval: 10 * SECOND });
@@ -45,6 +49,19 @@ export const useSignals = (source: Source) =>
     queryFn: () => api<SignalRow[]>(`/api/signals?${sourceQuery(source)}&limit=1000`).catch(() => [] as SignalRow[]),
   });
 
+/** Tín hiệu gần nhất của nhiều bot, gộp và sắp theo thời gian (mới nhất trước). */
+export function useBotSignals(names: string[], limit = 60) {
+  return useQueries({
+    queries: names.map((name) => ({
+      queryKey: ["signals", `bot:${name}`, limit], refetchInterval: 30 * SECOND,
+      queryFn: () => api<SignalRow[]>(`/api/signals?mode=${encodeURIComponent(`bot:${name}`)}&limit=${limit}`)
+        .then((rows) => rows.map((r) => ({ ...r, bot: name })))
+        .catch(() => [] as (SignalRow & { bot: string })[]),
+    })),
+    combine: (results) => results.flatMap((r) => r.data ?? []).sort((a, b) => Date.parse(b.time) - Date.parse(a.time)),
+  });
+}
+
 export const useReport = (source: Source) =>
   useQuery({
     queryKey: ["report", source], refetchInterval: liveInterval(source),
@@ -58,6 +75,9 @@ export const useBacktestStatus = () =>
     refetchInterval: (q) => (q.state.data?.running ? 2 * SECOND : 15 * SECOND),
   });
 
+export const useBacktestMethods = () =>
+  useQuery({ queryKey: ["backtest-methods"], queryFn: () => api<BacktestMethod[]>("/api/backtest/methods"), staleTime: Infinity });
+
 export const useConfigText = () =>
   useQuery({ queryKey: ["config"], queryFn: () => api<{ text: string }>("/api/config"), staleTime: Infinity });
 
@@ -65,6 +85,16 @@ export const useLog = (name: string, auto: boolean) =>
   useQuery({
     queryKey: ["log", name], refetchInterval: auto ? 5 * SECOND : false,
     queryFn: () => api<{ text: string }>(`/api/logs/${name}?lines=400`),
+  });
+
+export const useReviewOptions = () =>
+  useQuery({ queryKey: ["review-options"], queryFn: () => api<ReviewOptions>("/api/review/options"), staleTime: Infinity });
+
+/** Nến + hình học bot quanh một lệnh (lệnh đang mở thì làm mới mỗi phút). */
+export const useReviewChart = (item: ReviewItem, live: boolean) =>
+  useQuery({
+    queryKey: ["review-chart", item.kind, item.mode, item.key], refetchInterval: live ? 60 * SECOND : false,
+    queryFn: () => api<ReviewChartData>(`/api/review-chart/${item.kind}/${encodeURIComponent(item.mode)}/${item.key}`),
   });
 
 /** Mutation có thông báo thành công/lỗi và làm mới các query liên quan. */
@@ -88,6 +118,8 @@ export const actions = {
   stopBot: () => send("POST", "/api/bot/stop"),
   startNamedBot: (name: string) => send("POST", `/api/bots/${name}/start`),
   stopNamedBot: (name: string) => send("POST", `/api/bots/${name}/stop`),
+  saveBotSettings: ({ name, ...body }: { name: string; capital: number | null; risk_pct: number | null;
+    max_lot: number | null; risk_caps: [number, number][] | null }) => send("POST", `/api/bots/${name}/settings`, body),
   killSwitch: (enabled: boolean) => send<{ kill_switch: boolean }>("POST", "/api/killswitch", { enabled }),
   refreshNews: () => send<{ count: number }>("POST", "/api/news/refresh"),
   importNews: (file: File) => {
@@ -95,7 +127,7 @@ export const actions = {
     form.append("file", file);
     return send<{ count: number }>("POST", "/api/news/import", form);
   },
-  runBacktest: (body: { start: string; end: string; refresh: boolean }) => send("POST", "/api/backtest", body),
+  runBacktest: (body: BacktestRequest) => send("POST", "/api/backtest", body),
   stopBacktest: () => send("POST", "/api/backtest/stop"),
   saveConfig: (text: string) => send<{ backup: string; bot_running: boolean }>("PUT", "/api/config", { text }),
 };

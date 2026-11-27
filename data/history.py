@@ -66,11 +66,11 @@ def load_history(cfg: dict, start: pd.Timestamp, end: pd.Timestamp, refresh: boo
             log.warning("MT5 chỉ có %s %s từ %s (cần từ %s). Tăng 'Max bars in chart' trong MT5 nếu thiếu.",
                         symbol, tf, frames[tf]["time"].iat[0].date(), tf_start.date())
     if source is not None:
-        _save_spec(spec_path(cache_dir, symbol), source.symbol_spec())
+        save_spec(spec_path(cache_dir, symbol), source.symbol_spec())
     return frames, load_spec(spec_path(cache_dir, symbol), cfg)
 
 
-def _save_spec(path: Path, spec: SymbolSpec) -> None:
+def save_spec(path: Path, spec: SymbolSpec) -> None:
     path.write_text(json.dumps(spec.as_dict(), indent=2), encoding="utf-8")
 
 

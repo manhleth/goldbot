@@ -32,6 +32,8 @@ class Order:
     max_hold: pd.Timedelta | None = None
     max_spread: float | None = None    # lệnh market: bỏ nếu spread (giá) lúc khớp vượt mức này
     trail: str | None = None           # tên chuỗi mức dời SL theo cấu trúc (đỉnh/đáy swing khung lớn)
+    risk_scale: float = 1.0            # hệ số nhân số tiền rủi ro của lệnh (vd phá qua vùng S/R cứng)
+    lock_steps: tuple = ()             # khoá lãi theo bậc: ((chạy thuận R, dời SL tới +R), ...)
     reasons: tuple[str, ...] = ()
     meta: dict = field(default_factory=dict, compare=False)  # hình học mẫu hình để vẽ chart lý do (khung, các cạnh)
 
