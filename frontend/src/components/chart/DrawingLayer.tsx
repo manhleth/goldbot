@@ -31,6 +31,18 @@ interface Drag { id: string; index: number | null; startX: number; startY: numbe
 const layers: symbol[] = [];
 const activate = (id: symbol) => { const i = layers.indexOf(id); if (i >= 0) layers.splice(i, 1); layers.push(id); };
 const isActive = (id: symbol) => layers[layers.length - 1] === id;
+/** Chỉ số nến (có phần lẻ) → toạ độ x. Thư viện chỉ đổi được chỉ số nguyên (lẻ trả 0), nên nội suy giữa hai nến kề —
+ *  cần cho điểm nằm giữa hai nến (vd nến H4 gộp theo UTC trên chart H4 của MT5 lệch giờ). */
+function logicalX(chart: IChartApi, l: number): number | null {
+  if (!Number.isFinite(l)) return null;
+  const ts = chart.timeScale();
+  const i = Math.floor(l);
+  const x0 = ts.logicalToCoordinate(i as Logical);
+  if (x0 === null || l === i) return x0;
+  const x1 = ts.logicalToCoordinate((i + 1) as Logical);
+  return x1 === null ? null : x0 + (l - i) * (x1 - x0);
+}
+
 const typing = (e: KeyboardEvent) => {
   const el = e.target as HTMLElement | null;
   return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
@@ -101,7 +113,7 @@ export function DrawingLayer({ api, axis, offset, editor, fixed = [], colors }: 
 
   const toPx = useCallback((pt: DrawPoint): Px | null => {
     if (!api) return null;
-    const x = api.chart.timeScale().logicalToCoordinate(timeToLogical(axis, pt.t + offset) as Logical);
+    const x = logicalX(api.chart, timeToLogical(axis, pt.t + offset));
     const y = api.series.priceToCoordinate(pt.p);
     return x === null || y === null ? null : { x, y };
   }, [api, axis, offset]);
@@ -191,8 +203,31 @@ export function DrawingLayer({ api, axis, offset, editor, fixed = [], colors }: 
     ? { id: "draft", kind: tool, role, points: [...draft, hover] } : null), [drawing, draft, hover, tool, role]);
   const editable = tool === "cursor" || tool === "erase";
 
+  /** Điểm cuối kéo dài theo độ dốc tính trên chỉ số nến (đúng như đường thẳng hiển thị trên chart). */
+  const extended = (s: Shape): Px | null => {
+    const [p1, p2] = s.points;
+    const l1 = timeToLogical(axis, p1.t + offset);
+    const l2 = timeToLogical(axis, p2.t + offset);
+    const le = timeToLogical(axis, s.extendTo! + offset);
+    if (!(l2 > l1)) return null;
+    return toPx({ t: s.extendTo!, p: p1.p + ((p2.p - p1.p) * (le - l1)) / (l2 - l1) });
+  };
+
+  /** Vòng tròn đánh dấu các lần chạm, nhãn phía trên (đỉnh) / dưới (đáy) điểm. */
+  const marksOf = (s: Shape, color: string) => s.marks?.map((m, i) => {
+    const p = toPx(m);
+    if (!p) return null;
+    const below = m.text?.startsWith("Đáy");
+    return (
+      <g key={`m${i}`}>
+        <circle cx={p.x} cy={p.y} r={5} fill="none" stroke={color} strokeWidth={1.5} />
+        {m.text && <text x={p.x} y={p.y + (below ? 17 : -9)} fill={color} fontSize={10} textAnchor="middle">{m.text}</text>}
+      </g>
+    );
+  });
+
   const render = (s: Shape, interactive: boolean) => {
-    const color = s.role === "bot" ? BOT_COLOR : colors[s.role] ?? "#ffb74d";
+    const color = s.style?.color ?? (s.role === "bot" ? BOT_COLOR : colors[s.role] ?? "#ffb74d");
     const pts = s.points.map(toPx);
     if (pts.some((p) => p === null)) return null;
     const [a, b] = pts as Px[];
@@ -219,17 +254,25 @@ export function DrawingLayer({ api, axis, offset, editor, fixed = [], colors }: 
       const x = Math.min(a.x, b.x);
       const y = Math.min(a.y, b.y);
       return (
-        <g key={s.id}>
-          <rect x={x} y={y} width={Math.abs(b.x - a.x)} height={Math.abs(b.y - a.y)} fill={color} fillOpacity={0.14}
-            stroke={color} strokeWidth={isSel ? 2 : 1} className={body ? `draw-hit-fill${erase}` : undefined}
-            onPointerDown={body?.onPointerDown} />
+        <g key={s.id} opacity={s.style?.opacity}>
+          <rect x={x} y={y} width={Math.abs(b.x - a.x)} height={Math.max(2, Math.abs(b.y - a.y))} fill={color}
+            fillOpacity={0.14} stroke={color} strokeWidth={isSel ? 2 : s.style?.width ?? 1}
+            className={body ? `draw-hit-fill${erase}` : undefined} onPointerDown={body?.onPointerDown} />
+          {s.text && <text x={Math.min(Math.max(a.x, b.x), width) - 6} y={y - 5} fill={color} fontSize={11}
+            fontWeight={600} textAnchor="end">{s.text}</text>}
+          {marksOf(s, color)}
           {handles}
         </g>
       );
     }
+    const end = s.extendTo !== undefined ? extended(s) ?? b : b;
     return (
-      <g key={s.id}>
-        <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={color} strokeWidth={weight} />
+      <g key={s.id} opacity={s.style?.opacity}>
+        <line x1={a.x} y1={a.y} x2={end.x} y2={end.y} stroke={color} strokeWidth={s.style?.width ?? weight}
+          strokeDasharray={s.style?.dash} />
+        {s.text && <text x={Math.min(end.x, width) - 4} y={end.y - 6} fill={color} fontSize={11} fontWeight={600}
+          textAnchor="end">{s.text}</text>}
+        {marksOf(s, color)}
         {!isSel && <><circle cx={a.x} cy={a.y} r={3} fill={color} /><circle cx={b.x} cy={b.y} r={3} fill={color} /></>}
         {body && <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} {...body} />}
         {handles}

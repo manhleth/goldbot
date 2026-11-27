@@ -43,11 +43,16 @@ class ZoneBook:
 
 def _cluster(prices: np.ndarray, index: np.ndarray, tol: float, min_touches: int) -> list[tuple[float, float, int]]:
     """Cụm giá cách giá thấp nhất của cụm ≤ `tol`: (thấp, cao, vị trí lần chạm gần nhất)."""
+    return [(lo, hi, max(members)) for lo, hi, members in _groups(prices, index, tol, min_touches)]
+
+
+def _groups(prices: np.ndarray, index: np.ndarray, tol: float, min_touches: int) -> list[tuple[float, float, list[int]]]:
+    """Như `_cluster` nhưng giữ vị trí mọi lần chạm của cụm."""
     out, group = [], []
 
     def close_group() -> None:
         if len(group) >= min_touches:
-            out.append((group[0][0], group[-1][0], max(i for _, i in group)))
+            out.append((group[0][0], group[-1][0], sorted(i for _, i in group)))
 
     for p, i in sorted(zip(prices, index)):
         if group and p - group[0][0] > tol:
@@ -80,6 +85,21 @@ def _snapshots(df: pd.DataFrame, swing: int, lookback: int, max_age: int | None,
     return out
 
 
+def current_zones(df: pd.DataFrame, swing: int, lookback: int, max_age: int | None, tol_atr: float, min_touches: int,
+                  atr_period: int) -> list[tuple[float, float, list[int]]]:
+    """Vùng còn hiệu lực ở nến cuối (cùng quy tắc `_snapshots`), kèm vị trí các đỉnh/đáy swing tạo nên vùng."""
+    is_high, is_low = ind.fractal_swings(df, swing, swing)
+    k = len(df) - 1
+    atr = float(ind.atr(df, atr_period).iat[-1])
+    if k < 0 or not np.isfinite(atr):
+        return []
+    prices = np.where(is_high, df["high"].to_numpy(float), np.where(is_low, df["low"].to_numpy(float), np.nan))
+    pivots = np.flatnonzero(is_high | is_low)
+    known = pivots[(pivots >= max(0, k - lookback)) & (pivots + swing <= k)]
+    groups = _groups(prices[known], known, tol_atr * atr, min_touches)
+    return [(lo, hi, m) for lo, hi, m in groups if max_age is None or k - max(m) <= max_age]
+
+
 def weekly(daily: pd.DataFrame) -> pd.DataFrame:
     """Nến W1 từ D1 (tuần Chủ nhật → thứ Bảy UTC, vàng mở tuần tối Chủ nhật); `close_time` = giờ đóng nến D1 cuối tuần."""
     g = daily.set_index("time").resample("W-SUN", label="left", closed="left")
@@ -87,7 +107,7 @@ def weekly(daily: pd.DataFrame) -> pd.DataFrame:
     return out.dropna(subset=["open"]).reset_index()
 
 
-def _zone_frame(data: MarketData, tf: str) -> pd.DataFrame:
+def zone_frame(data: MarketData, tf: str) -> pd.DataFrame:
     return weekly(data.frame("D1")) if tf == "W1" else data.frame(tf)
 
 
@@ -95,7 +115,7 @@ def build_book(data: MarketData, cfg: dict) -> ZoneBook:
     """Gộp vùng của mọi khung trong `cfg["timeframes"]`; ATR tham chiếu = ATR của khung nhỏ nhất (khung cuối)."""
     events = []
     for tf, tc in cfg["timeframes"].items():
-        for t, zones, a in _snapshots(_zone_frame(data, tf), tc["swing"], tc["lookback"], tc.get("max_age"), cfg["tol_atr"],
+        for t, zones, a in _snapshots(zone_frame(data, tf), tc["swing"], tc["lookback"], tc.get("max_age"), cfg["tol_atr"],
                                       cfg["min_touches"], cfg["atr"]):
             events.append((t, tf, zones, a))
     events.sort(key=lambda e: e[0])

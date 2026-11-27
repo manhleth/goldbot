@@ -33,6 +33,16 @@ class MT5Source:
         rates = self._mt5.copy_rates_from_pos(self._symbol, self._timeframe(tf), 0, count + 1)
         return closed_only(self._to_frame(rates, tf), now).tail(count).reset_index(drop=True)
 
+    def fetch_before(self, tf: str, before: pd.Timestamp, count: int) -> pd.DataFrame | None:
+        """`count` nến mở trước `before` (UTC); None nếu MT5 không còn dữ liệu cũ hơn (giới hạn Max bars in chart)."""
+        when = utc_to_server(before, self._server_time).to_pydatetime()
+        rates = self._mt5.copy_rates_from(self._symbol, self._timeframe(tf), when, count + 1)
+        if rates is None or len(rates) == 0:
+            return None
+        df = self._to_frame(rates, tf)
+        df = df[df["time"] < before].tail(count).reset_index(drop=True)
+        return df if len(df) else None
+
     def fetch_range(self, tf: str, start: pd.Timestamp, end: pd.Timestamp, chunk_bars: int) -> pd.DataFrame:
         """Tải theo từng đoạn `chunk_bars` nến vì MT5 từ chối yêu cầu quá lớn trong một lần gọi."""
         lo = utc_to_server(start - _RANGE_PAD, self._server_time)

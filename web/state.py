@@ -8,6 +8,7 @@ from fastapi import Request
 from core.config import load_config
 from journal.db import Journal
 from news.store import NewsStore
+from web.services.bot_overlays import BotOverlays
 from web.services.market import MarketData
 from web.services.mt5_gateway import MT5Gateway
 from web.services.processes import ManagedProcess
@@ -26,6 +27,7 @@ class AppState:
         self.cfg = load_config(self.config_path)
         self.gateway = MT5Gateway(self.cfg)
         self.market = MarketData(self.cfg, self.gateway)
+        self.overlays = BotOverlays(self.cfg, self.gateway, self.root)
         self.news = NewsStore(self.cfg["news"]["db"])
 
     def journal(self, mode: str) -> Journal:

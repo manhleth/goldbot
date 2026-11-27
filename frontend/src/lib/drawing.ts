@@ -11,7 +11,15 @@ export interface Shape {
   role: string;
   points: DrawPoint[];
   text?: string | null;
+  /** Nét chỉ đọc của bot: kiểu vẽ riêng (màu, nét đứt, độ đậm, độ mờ). */
+  style?: ShapeStyle;
+  /** Trendline: kéo dài theo đúng độ dốc tới thời điểm này (UTC giây). */
+  extendTo?: number;
+  /** Điểm đánh dấu (vd các lần chạm đỉnh/đáy) vẽ vòng tròn + nhãn. */
+  marks?: { t: number; p: number; text?: string }[];
 }
+
+export interface ShapeStyle { color?: string; dash?: string; width?: number; opacity?: number }
 
 /** Số điểm cần click để xong một nét. */
 export const POINTS_NEEDED: Record<ShapeKind, number> = { trend: 2, hline: 1, zone: 2 };

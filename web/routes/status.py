@@ -50,6 +50,7 @@ def status(state: AppState = Depends(get_state)) -> dict:
         "backtest_running": state.backtest.is_running(),
         "news": _news_status(state),
         "timeframes": state.cfg["timeframes"],
+        "chart_timeframes": state.cfg["web"].get("chart_timeframes", []),
     }
 
 

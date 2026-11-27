@@ -17,7 +17,7 @@ timeframes: { bias: [H4], setup: H1, confirm: [M15, M5], trigger: M5 }
 data:
   server_time: ny_close     # giờ server broker: ny_close (GMT+2/+3 theo DST Mỹ) hoặc số giờ lệch UTC cố định (0, 2, 3...)
   cache_dir: cache
-  history_bars: { D1: 600, H4: 1500, H1: 2000, M15: 2000, M5: 1500 }  # số nến nạp để tính chỉ báo (warm-up)
+  history_bars: { W1: 300, D1: 600, H4: 1500, H1: 2000, M15: 2000, M5: 1500 }  # số nến nạp để tính chỉ báo (warm-up)
   window_bars:  { D1: 300, H4: 300, H1: 400, M15: 400, M5: 200 }     # số nến đưa vào bộ phát hiện cấu trúc
   fetch_chunk_bars: 20000   # số nến mỗi lần xin MT5 khi tải lịch sử (MT5 từ chối yêu cầu quá lớn)
 
@@ -145,6 +145,26 @@ web:
   host: 127.0.0.1           # chỉ truy cập từ máy này
   port: 8000
   cache_seconds: 10         # cache dữ liệu nến cho giao diện
+  chart_timeframes: [M5, M15, H1, H4, D1, W1]   # khung chọn được trên chart chính (cần có trong data.history_bars)
+  bot_overlays:             # lớp vẽ của bot trên chart chính (vùng S/R cứng, trendline đa tỉ lệ, setup đã quét)
+    default_method: one_swing        # nguồn "live" cũ hoặc run không ghi phương pháp
+    trendlines_from: one_swing_tl    # phương pháp trong playbook.yaml lấy cấu hình `tl_scales`
+    history_days: 400                # nến M15 để dựng vùng/trendline (như signal_days của bot)
+    cache_seconds: 300               # vùng/trendline chỉ đổi khi có nến H4/D1 mới
+    extend_bars: 12                  # kéo dài vùng / đường đang hiệu lực thêm N nến khung của nó về bên phải
+    zones_each_side: 2               # số vùng S/R gần nhất vẽ mỗi phía (kháng cự trên, hỗ trợ dưới)
+    lines_each_side: 1               # số trendline quan trọng nhất mỗi phía (nối đáy / nối đỉnh)
+    broken_near_atr: 1.5             # đường đã phá chỉ vẽ khi giá đang cách đường ≤ N × ATR (đang retest)
+    setups_limit: 300                # số tín hiệu gần nhất vẽ cạnh mẫu hình
+    sr:                              # vùng S/R vẽ trên chart (tham khảo, rộng hơn bộ lọc của bot); null = dùng `sr` của phương pháp
+      frames: { W1: D1_long, D1: D1_long }   # D1_long = lịch sử D1 dài trong cache nối với nến D1 gần nhất
+      timeframes:
+        W1: { swing: 2, lookback: 260, max_age: null }   # 5 năm nến tuần
+        D1: { swing: 3, lookback: 750, max_age: 250 }
+        H4: { swing: 3, lookback: 300, max_age: 180 }
+      atr: 14
+      tol_atr: 0.5
+      min_touches: 2
 
 blocked_windows_utc:        # days: 0=Thứ 2 ... 6=Chủ nhật
   - { days: [4], start: "20:00", end: "24:00" }

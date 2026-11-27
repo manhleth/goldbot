@@ -425,3 +425,19 @@ nghẽn ở số mức thanh khoản, yêu cầu nến xác nhận M5 và lọc 
   đi lên: 59 lệnh +27.8R); gộp vào one_swing 328 lệnh +223.3R so với one_swing 281 lệnh +221.3R, DD năm 2025/2026 cao hơn.
   `LineRules.any_slope` (mặc định tắt, giữ nguyên các phương pháp cũ); lệnh khung không có trong danh sách dời SL
   (vd D1) dời theo khung lớn nhất ≤ khung lệnh (runner._nearest_trail) thay vì khung đầu danh sách.
+- Chart chính: lớp vẽ của bot bật/tắt bằng chip — "S/R bot" (vùng cứng W1/D1/H4 theo phương pháp của nguồn đang chọn),
+  "Trendline" (đa tỉ lệ H4/D1: liền = còn hiệu lực, đứt = vừa phá còn trong cửa sổ retest; gộp đường gần trùng),
+  "Setup bot" (cạnh mẫu hình các tín hiệu đã quét, mờ = bị bỏ). API `/api/bot-overlays` (web/services/bot_overlays.py),
+  cấu hình `web.bot_overlays`. FVG/OB/Swing ghi rõ là phân tích cũ. Sửa vẽ điểm nằm giữa hai nến (thư viện chart chỉ
+  đổi chỉ số nến nguyên → nội suy).
+- Chart chính gọn lại: "S/R bot" vẽ kiểu đỉnh/đáy trong quá khứ — dải ngang từ lần chạm đầu, kháng cự đỏ / hỗ trợ xanh,
+  vòng tròn đánh dấu Đỉnh n / Đáy n; chỉ `zones_each_side` vùng gần nhất mỗi phía, vùng chồng nhau giữ khung lớn hơn.
+  "Trendline" chỉ giữ `lines_each_side` đường mạnh nhất mỗi phía (số chạm × độ dài) + đường đã phá khi giá đang retest
+  (≤ `broken_near_atr` × ATR), có đánh dấu các lần chạm. `sr_zones.current_zones` trả kèm vị trí các lần chạm.
+- Chart chính có thêm D1, W1 (`web.chart_timeframes`; TF_MINUTES thêm W1). S/R trên chart dùng cấu hình hiển thị
+  `web.bot_overlays.sr` (W1 5 năm + D1 750 nến từ lịch sử D1 dài trong cache, H4 300 nến) thay vì chỉ cửa sổ 400 ngày
+  của bộ lọc bot — trước đó giá ở đáy thấp nhất 400 ngày nên không có vùng hỗ trợ nào, kháng cự gần nhất nằm ngoài
+  khung nhìn M5/H1. Bộ lọc S/R của bot không đổi.
+- Chart chính nạp nến cũ khi kéo sang trái (kiểu TradingView): `/api/candles/history?tf&before&bars` lấy từ MT5
+  (`MT5Source.fetch_before`, copy_rates_from), hết dữ liệu thì đọc cache; mỗi lần 1.500 nến. EMA tính lại phía giao diện
+  trên toàn bộ nến đã nạp. Đã thử H4 kéo về 2018; MT5 có M5 từ 2019, D1 từ 2011, W1 từ 2004.

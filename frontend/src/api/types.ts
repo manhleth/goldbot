@@ -28,6 +28,8 @@ export interface Status {
   backtest_running: boolean;
   news: { blackout: string | null; next: { title: string; time: number } | null };
   timeframes: Timeframes;
+  /** Khung chọn được trên chart chính (web.chart_timeframes). */
+  chart_timeframes: string[];
 }
 
 export interface BotStatus { name: string; method: string; running: boolean; heartbeat: string | null; open: number }
@@ -159,3 +161,19 @@ export interface ReviewChartData {
   edges: [number, number, number, number][];
   breakout_time: number | null;
 }
+
+/** Lớp vẽ của bot trên chart chính (GET /api/bot-overlays). Thời gian: Unix giây UTC. */
+export interface BotTouch { t: number; p: number; kind?: "high" | "low" }
+export interface BotZone {
+  tf: string; low: number; high: number; role: "resistance" | "support" | "inside";
+  touches: BotTouch[]; start: number; extend_to: number;
+}
+export interface BotTrendline {
+  tf: string; swing: number; side: number; state: "active" | "broken"; touches: number;
+  points: [number, number][]; extend_to: number; marks: BotTouch[];
+}
+export interface BotSetup {
+  id: number; time: number; direction: Dir; key: string; tf: string | null; accepted: boolean; reject: string | null;
+  breakout: number; edges: [number, number, number, number][];
+}
+export interface BotOverlays { method: string; sr: BotZone[]; trendlines: BotTrendline[]; setups: BotSetup[]; error?: string }

@@ -2,7 +2,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/rea
 import { notifications } from "@mantine/notifications";
 import { api, isLiveSource, send, sourceQuery, type Source } from "./client";
 import type {
-  Analysis, BacktestMethod, BacktestRequest, BacktestStatus, BotSummary, CandlesResp, NewsResp, PositionsResp, Report,
+  Analysis, BacktestMethod, BotOverlays, BacktestRequest, BacktestStatus, BotSummary, CandlesResp, NewsResp, PositionsResp, Report,
   ReviewChartData, ReviewItem, ReviewOptions, Run, SignalRow, Status, Trade,
 } from "./types";
 
@@ -85,6 +85,14 @@ export const useLog = (name: string, auto: boolean) =>
   useQuery({
     queryKey: ["log", name], refetchInterval: auto ? 5 * SECOND : false,
     queryFn: () => api<{ text: string }>(`/api/logs/${name}?lines=400`),
+  });
+
+/** Vùng S/R cứng, trendline đa tỉ lệ và setup đã quét của bot theo nguồn đang chọn; `since` = nến đầu trên chart. */
+export const useBotOverlays = (source: Source, since: number | null, enabled: boolean) =>
+  useQuery({
+    queryKey: ["bot-overlays", source, since], enabled: enabled && since !== null, refetchInterval: 60 * SECOND,
+    placeholderData: (prev) => prev,
+    queryFn: () => api<BotOverlays>(`/api/bot-overlays?${sourceQuery(source)}&since=${since}`),
   });
 
 export const useReviewOptions = () =>

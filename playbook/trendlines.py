@@ -48,6 +48,7 @@ class TrendlineSeries:
     channel: dict[Direction, np.ndarray]  # giá trị đường kênh đối diện (NaN nếu không có kênh)
     line_id: dict[Direction, np.ndarray]  # mã đường (vị trí điểm thứ hai) để đếm số lần vào lệnh mỗi đường
     breaks: list[LineBreak]
+    active: dict[Direction, Line | None] | None = None  # đường còn hiệu lực ở nến cuối (để vẽ)
 
 
 @dataclass(frozen=True)
@@ -137,4 +138,4 @@ def build(df: pd.DataFrame, swing: int, rules: LineRules, break_atr: float, atr_
             value[side][k], line_id[side][k], slope[side][k] = v, line.i2, line.slope
             if line.channel is not None:
                 channel[side][k] = v + side * line.channel
-    return TrendlineSeries(value, slope, channel, line_id, breaks)
+    return TrendlineSeries(value, slope, channel, line_id, breaks, dict(active))

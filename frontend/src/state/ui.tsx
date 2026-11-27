@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import type { Source } from "../api/client";
 
-export type Overlay = "ema" | "sr" | "fvg" | "ob" | "swings" | "setups" | "trades" | "news";
+/** sr / trendlines / setups = lớp vẽ của bot (phương pháp ONE); fvg / ob / swings = phân tích cũ. */
+export type Overlay = "ema" | "sr" | "trendlines" | "fvg" | "ob" | "swings" | "setups" | "trades" | "news";
 export type Page = "overview" | "chart" | "trades" | "signals" | "stats" | "backtest" | "config" | "logs";
 
 interface UiState {
@@ -16,7 +17,7 @@ interface UiState {
 }
 
 const DEFAULT_OVERLAYS: Record<Overlay, boolean> = {
-  ema: true, sr: false, fvg: false, ob: false, swings: false, setups: false, trades: true, news: true,
+  ema: true, sr: true, trendlines: true, fvg: false, ob: false, swings: false, setups: false, trades: true, news: true,
 };
 const STORAGE_KEY = "goldbot.ui";
 
